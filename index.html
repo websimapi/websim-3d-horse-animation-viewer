@@ -1468,6 +1468,18 @@
             }, 50);
         }
         
+        // Clear still points from the UI
+        function clearStillPoints() {
+            // Clear the still points container
+            stillPointsContainer.innerHTML = '';
+            
+            // Clear the still points layer in the timeline
+            stillPointsLayer.innerHTML = '';
+            
+            // Reset the stillPoints array
+            stillPoints = [];
+        }
+        
         // Event listeners for still point controls
         detectStillPointsBtn.addEventListener('click', detectStillPoints);
         clearStillPointsBtn.addEventListener('click', clearStillPoints);
