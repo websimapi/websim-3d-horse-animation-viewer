@@ -215,6 +215,72 @@
             align-items: center;
             gap: 10px;
         }
+        
+        /* Enhanced styles for detection controls */
+        #analysis-options {
+            margin-top: 5px;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            background-color: #3a3a3a;
+            padding: 8px;
+            border-radius: 4px;
+            margin-bottom: 5px;
+            min-width: 200px;
+        }
+        
+        .control-group h4 {
+            margin: 0 0 5px 0;
+            font-size: 14px;
+            color: #ccc;
+        }
+        
+        .control-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 3px;
+        }
+        
+        .control-row label {
+            min-width: 100px;
+            font-size: 12px;
+        }
+        
+        .control-row input[type="range"] {
+            flex: 1;
+            margin: 0 8px;
+        }
+        
+        .control-row span {
+            min-width: 60px;
+            text-align: right;
+            font-size: 12px;
+        }
+        
+        #detection-presets {
+            margin-right: 10px;
+        }
+        
+        .advanced-toggle {
+            cursor: pointer;
+            text-decoration: underline;
+            color: #aaddff;
+            margin-top: 5px;
+            font-size: 12px;
+            user-select: none;
+        }
+        
+        #advanced-settings {
+            margin-top: 5px;
+            padding-top: 5px;
+            border-top: 1px dashed #555;
+        }
     </style>
 </head>
 <body>
@@ -234,14 +300,62 @@
             <div id="still-points-controls">
                 <button id="detect-still-points">Detect Still Points</button>
                 <button id="clear-still-points">Clear Markers</button>
+                
+                <div id="detection-presets">
+                    <button id="preset-strict">Strict</button>
+                    <button id="preset-normal">Normal</button>
+                    <button id="preset-loose">Loose</button>
+                </div>
+                
                 <div id="analysis-options">
-                    <label for="still-threshold">Sensitivity:</label>
-                    <input type="range" id="still-threshold" min="0.0001" max="0.01" step="0.0001" value="0.001">
-                    <span id="threshold-value">0.001</span>
+                    <div class="control-group">
+                        <h4>Movement Threshold</h4>
+                        <div class="control-row">
+                            <label for="still-threshold">Sensitivity:</label>
+                            <input type="range" id="still-threshold" min="0.00001" max="0.05" step="0.00001" value="0.001">
+                            <span id="threshold-value">0.001</span>
+                        </div>
+                    </div>
                     
-                    <label for="min-still-duration">Min Duration:</label>
-                    <input type="range" id="min-still-duration" min="0.05" max="1" step="0.05" value="0.2">
-                    <span id="duration-value">0.2s</span>
+                    <div class="control-group">
+                        <h4>Time Constraints</h4>
+                        <div class="control-row">
+                            <label for="min-still-duration">Min Duration:</label>
+                            <input type="range" id="min-still-duration" min="0.01" max="2" step="0.01" value="0.2">
+                            <span id="duration-value">0.2s</span>
+                        </div>
+                    </div>
+                    
+                    <div class="advanced-toggle" id="toggle-advanced">+ Show Advanced Settings</div>
+                    
+                    <div id="advanced-settings" style="display: none; width: 100%;">
+                        <div class="control-group">
+                            <h4>Smoothing</h4>
+                            <div class="control-row">
+                                <label for="smoothing-window">Smoothing:</label>
+                                <input type="range" id="smoothing-window" min="1" max="10" step="1" value="3">
+                                <span id="smoothing-value">3 frames</span>
+                            </div>
+                        </div>
+                        
+                        <div class="control-group">
+                            <h4>Movement Detection</h4>
+                            <div class="control-row">
+                                <label for="movement-weight">Position/Rotation:</label>
+                                <input type="range" id="movement-weight" min="0" max="1" step="0.1" value="0.5">
+                                <span id="weight-value">Balanced</span>
+                            </div>
+                        </div>
+                        
+                        <div class="control-group">
+                            <h4>Gap Filling</h4>
+                            <div class="control-row">
+                                <label for="max-gap">Max Gap:</label>
+                                <input type="range" id="max-gap" min="0" max="1" step="0.05" value="0.1">
+                                <span id="gap-value">0.1s</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div id="timeline">
@@ -393,6 +507,17 @@
         const minStillDurationSlider = document.getElementById('min-still-duration');
         const thresholdValueSpan = document.getElementById('threshold-value');
         const durationValueSpan = document.getElementById('duration-value');
+        const movementWeightSlider = document.getElementById('movement-weight');
+        const weightValueSpan = document.getElementById('weight-value');
+        const smoothingWindowSlider = document.getElementById('smoothing-window');
+        const smoothingValueSpan = document.getElementById('smoothing-value');
+        const maxGapSlider = document.getElementById('max-gap');
+        const gapValueSpan = document.getElementById('gap-value');
+        const toggleAdvancedBtn = document.getElementById('toggle-advanced');
+        const advancedSettings = document.getElementById('advanced-settings');
+        const presetStrict = document.getElementById('preset-strict');
+        const presetNormal = document.getElementById('preset-normal');
+        const presetLoose = document.getElementById('preset-loose');
         
         // Load horse model
         const loader = new GLTFLoader();
@@ -990,6 +1115,85 @@
             console.log("Clip Data:", json);
         });
         
+        // Toggle advanced settings
+        toggleAdvancedBtn.addEventListener('click', () => {
+            const isVisible = advancedSettings.style.display !== 'none';
+            advancedSettings.style.display = isVisible ? 'none' : 'block';
+            toggleAdvancedBtn.textContent = isVisible ? 
+                '+ Show Advanced Settings' : '- Hide Advanced Settings';
+        });
+        
+        // Preset buttons
+        presetStrict.addEventListener('click', () => {
+            stillThresholdSlider.value = 0.0001;
+            minStillDurationSlider.value = 0.1;
+            smoothingWindowSlider.value = 2;
+            movementWeightSlider.value = 0.5;
+            maxGapSlider.value = 0.05;
+            updateAllSliderLabels();
+        });
+        
+        presetNormal.addEventListener('click', () => {
+            stillThresholdSlider.value = 0.001;
+            minStillDurationSlider.value = 0.2;
+            smoothingWindowSlider.value = 3;
+            movementWeightSlider.value = 0.5;
+            maxGapSlider.value = 0.1;
+            updateAllSliderLabels();
+        });
+        
+        presetLoose.addEventListener('click', () => {
+            stillThresholdSlider.value = 0.005;
+            minStillDurationSlider.value = 0.3;
+            smoothingWindowSlider.value = 5;
+            movementWeightSlider.value = 0.5;
+            maxGapSlider.value = 0.2;
+            updateAllSliderLabels();
+        });
+        
+        function updateAllSliderLabels() {
+            // Update all slider display values
+            thresholdValueSpan.textContent = parseFloat(stillThresholdSlider.value).toFixed(6);
+            durationValueSpan.textContent = `${parseFloat(minStillDurationSlider.value).toFixed(2)}s`;
+            smoothingValueSpan.textContent = `${smoothingWindowSlider.value} frames`;
+            updateWeightLabel();
+            gapValueSpan.textContent = `${parseFloat(maxGapSlider.value).toFixed(2)}s`;
+        }
+        
+        // Update weight label text based on slider value
+        function updateWeightLabel() {
+            const value = parseFloat(movementWeightSlider.value);
+            if (value < 0.3) {
+                weightValueSpan.textContent = "Position";
+            } else if (value > 0.7) {
+                weightValueSpan.textContent = "Rotation";
+            } else {
+                weightValueSpan.textContent = "Balanced";
+            }
+        }
+        
+        // Event listeners for still point controls
+        detectStillPointsBtn.addEventListener('click', detectStillPoints);
+        clearStillPointsBtn.addEventListener('click', clearStillPoints);
+        
+        movementWeightSlider.addEventListener('input', updateWeightLabel);
+        
+        smoothingWindowSlider.addEventListener('input', () => {
+            smoothingValueSpan.textContent = `${smoothingWindowSlider.value} frames`;
+        });
+        
+        maxGapSlider.addEventListener('input', () => {
+            gapValueSpan.textContent = `${parseFloat(maxGapSlider.value).toFixed(2)}s`;
+        });
+        
+        stillThresholdSlider.addEventListener('input', () => {
+            thresholdValueSpan.textContent = parseFloat(stillThresholdSlider.value).toFixed(6);
+        });
+        
+        minStillDurationSlider.addEventListener('input', () => {
+            durationValueSpan.textContent = `${parseFloat(minStillDurationSlider.value).toFixed(2)}s`;
+        });
+        
         // Clear Still Points
         function clearStillPoints() {
             // Clear still points array
@@ -1001,7 +1205,7 @@
             // Clear the timeline visualization
             stillPointsLayer.innerHTML = '';
         }
-
+        
         // Detect Still Points in Animation
         function detectStillPoints() {
             if (!mixer || !horse || animations.length === 0) {
@@ -1026,31 +1230,44 @@
             // Get analysis parameters
             const stillThreshold = parseFloat(stillThresholdSlider.value);
             const minStillDuration = parseFloat(minStillDurationSlider.value);
+            const movingAverageWindowSize = parseInt(smoothingWindowSlider.value);
+            const posRotWeight = parseFloat(movementWeightSlider.value);
+            const maxGapDuration = parseFloat(maxGapSlider.value);
             
             // Add some debug information in the UI
-            console.log("Starting still point detection with threshold:", stillThreshold, 
-                       "and min duration:", minStillDuration);
+            console.log("Starting still point detection with:", {
+                threshold: stillThreshold,
+                minDuration: minStillDuration,
+                smoothingWindow: movingAverageWindowSize,
+                positionRotationBalance: posRotWeight,
+                maxGap: maxGapDuration
+            });
             
             // Give the UI time to update before starting intensive operation
             setTimeout(() => {
                 // Perform analysis
-                performStillPointsAnalysis(stillThreshold, minStillDuration)
-                    .then((points) => {
-                        stillPoints = points;
-                        
-                        // Remove loading message
-                        stillPointsContainer.innerHTML = '';
-                        
-                        // Log results
-                        console.log(`Found ${points.length} still points:`, points);
-                        
-                        // Visualize the results
-                        visualizeStillPoints(stillPoints);
-                        
-                        // Restore state
-                        mixer.setTime(currentPosition);
-                        if (wasPlaying) setPlaying(true);
-                    });
+                performStillPointsAnalysis(
+                    stillThreshold, 
+                    minStillDuration, 
+                    movingAverageWindowSize, 
+                    posRotWeight, 
+                    maxGapDuration
+                ).then((points) => {
+                    stillPoints = points;
+                    
+                    // Remove loading message
+                    stillPointsContainer.innerHTML = '';
+                    
+                    // Log results
+                    console.log(`Found ${points.length} still points:`, points);
+                    
+                    // Visualize the results
+                    visualizeStillPoints(stillPoints);
+                    
+                    // Restore state
+                    mixer.setTime(currentPosition);
+                    if (wasPlaying) setPlaying(true);
+                });
             }, 50);
         }
         
@@ -1168,7 +1385,7 @@
         }
 
         // Perform the actual analysis
-        function performStillPointsAnalysis(threshold, minDuration) {
+        function performStillPointsAnalysis(threshold, minDuration, windowSize, posRotWeight, maxGap) {
             return new Promise((resolve) => {
                 const clip = animations[0];
                 const duration = clip.duration;
@@ -1182,7 +1399,8 @@
                 let isStill = false;
                 let stillStartTime = 0;
                 let movementValues = []; 
-                let movingAverageWindow = 3; 
+                let movingAverageWindow = windowSize || 3; 
+                let lastStillEndTime = -Infinity;
                 
                 // Save current animation state
                 const currentMixerTime = mixer.time;
@@ -1204,7 +1422,8 @@
                 function calculateMovement(state1, state2) {
                     if (!state1 || !state2) return Infinity;
                     
-                    let totalMovement = 0;
+                    let totalPositionMovement = 0;
+                    let totalRotationMovement = 0;
                     let boneCount = 0;
                     
                     for (let i = 0; i < state1.length; i++) {
@@ -1216,16 +1435,22 @@
                             
                             // Position difference
                             const posDiff = bone1.position.distanceTo(bone2.position);
-                            totalMovement += posDiff;
+                            totalPositionMovement += posDiff;
                             
                             // Rotation difference - use quaternion dot product
                             const quatDiff = 1 - Math.abs(bone1.quaternion.dot(bone2.quaternion));
-                            totalMovement += quatDiff * 2; 
+                            totalRotationMovement += quatDiff * 2; 
                         }
                     }
                     
+                    // Weight between position and rotation based on slider
+                    const posWeight = 1 - posRotWeight;
+                    const rotWeight = posRotWeight;
+                    
                     // Normalize by bone count to make threshold more consistent
-                    return boneCount > 0 ? totalMovement / boneCount : Infinity;
+                    return boneCount > 0 ? 
+                        (totalPositionMovement * posWeight + totalRotationMovement * rotWeight) / boneCount : 
+                        Infinity;
                 }
                 
                 // Function to get smoothed movement using moving average
@@ -1264,9 +1489,25 @@
                             // Check if this is a still point
                             if (movement < threshold) {
                                 if (!isStill) {
-                                    // Start of still period
-                                    stillStartTime = frameTime;
-                                    isStill = true;
+                                    // Check if we should merge with previous still point
+                                    if (maxGap > 0 && frameTime - lastStillEndTime <= maxGap) {
+                                        // Merge with previous still point by extending its end time
+                                        if (points.length > 0) {
+                                            isStill = true;
+                                            stillStartTime = points[points.length - 1].start;
+                                            // Remove the previous point as we'll create a merged one
+                                            points.pop();
+                                            stillPointsCount--;
+                                        } else {
+                                            // Start of still period (no previous to merge with)
+                                            stillStartTime = frameTime;
+                                            isStill = true;
+                                        }
+                                    } else {
+                                        // Start of still period (normal case)
+                                        stillStartTime = frameTime;
+                                        isStill = true;
+                                    }
                                 }
                             } else {
                                 if (isStill) {
@@ -1280,6 +1521,7 @@
                                             movement: movement
                                         });
                                         stillPointsCount++;
+                                        lastStillEndTime = frameTime;
                                     }
                                     isStill = false;
                                 }
@@ -1332,18 +1574,6 @@
             });
         }
 
-        // Event listeners for still point controls
-        detectStillPointsBtn.addEventListener('click', detectStillPoints);
-        clearStillPointsBtn.addEventListener('click', clearStillPoints);
-        
-        stillThresholdSlider.addEventListener('input', () => {
-            thresholdValueSpan.textContent = parseFloat(stillThresholdSlider.value).toFixed(4);
-        });
-        
-        minStillDurationSlider.addEventListener('input', () => {
-            durationValueSpan.textContent = `${parseFloat(minStillDurationSlider.value).toFixed(2)}s`;
-        });
-        
         // Animation loop
         const clock = new THREE.Clock();
         
