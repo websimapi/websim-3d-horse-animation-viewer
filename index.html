@@ -168,6 +168,53 @@
             max-height: 100px;
             overflow-y: auto;
         }
+        /* New styles for still points */
+        .still-marker {
+            position: absolute;
+            width: 2px;
+            height: 100%;
+            background-color: #ffd700;
+            top: 0;
+            z-index: 10;
+        }
+        
+        .still-segment {
+            position: absolute;
+            height: 100%;
+            background-color: rgba(255, 215, 0, 0.2);
+            border-left: 2px solid rgba(255, 215, 0, 0.8);
+            border-right: 2px solid rgba(255, 215, 0, 0.8);
+            top: 0;
+            z-index: 5;
+        }
+        
+        #still-points-container {
+            margin-top: 10px;
+            margin-bottom: 10px;
+        }
+        
+        .still-point-item {
+            background-color: #444;
+            padding: 6px;
+            margin: 4px 0;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .still-point-item:hover {
+            background-color: #555;
+        }
+        
+        #still-points-controls {
+            margin-bottom: 10px;
+        }
+        
+        #analysis-options {
+            margin-top: 5px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
     </style>
 </head>
 <body>
@@ -184,8 +231,22 @@
                 <label for="playback-speed">Speed: <span id="speed-value">1.0</span>x</label>
                 <span style="margin-left: 20px;">Time: <span id="current-time">0.00</span>s / <span id="total-time">0.00</span>s</span>
             </div>
+            <div id="still-points-controls">
+                <button id="detect-still-points">Detect Still Points</button>
+                <button id="clear-still-points">Clear Markers</button>
+                <div id="analysis-options">
+                    <label for="still-threshold">Sensitivity:</label>
+                    <input type="range" id="still-threshold" min="0.0001" max="0.01" step="0.0001" value="0.001">
+                    <span id="threshold-value">0.001</span>
+                    
+                    <label for="min-still-duration">Min Duration:</label>
+                    <input type="range" id="min-still-duration" min="0.05" max="1" step="0.05" value="0.2">
+                    <span id="duration-value">0.2s</span>
+                </div>
+            </div>
             <div id="timeline">
                 <div id="timeline-segments"></div>
+                <div id="still-points-layer"></div>
                 <div id="timeline-scrubber"></div>
             </div>
         </div>
@@ -223,6 +284,10 @@
                 <h3>Model Information</h3>
                 <div id="bones-info">Loading bone information...</div>
                 <div id="animation-stats"></div>
+                
+                <h3>Still Points</h3>
+                <div>Points where animation has minimal movement:</div>
+                <div id="still-points-container"></div>
             </div>
             
             <div class="panel" id="animation-preview">
@@ -300,6 +365,7 @@
         let currentTime = 0;
         let totalDuration = 0;
         let customClips = [];
+        let stillPoints = [];
         
         // UI Elements
         const playPauseBtn = document.getElementById('play-pause');
@@ -311,6 +377,7 @@
         const timelineScrubber = document.getElementById('timeline-scrubber');
         const timeline = document.getElementById('timeline');
         const timelineSegments = document.getElementById('timeline-segments');
+        const stillPointsLayer = document.getElementById('still-points-layer');
         const startTimeInput = document.getElementById('start-time');
         const endTimeInput = document.getElementById('end-time');
         const clipNameInput = document.getElementById('clip-name');
@@ -319,6 +386,13 @@
         const animationStats = document.getElementById('animation-stats');
         const originalAnimations = document.getElementById('original-animations');
         const customClipsContainer = document.getElementById('custom-clips');
+        const stillPointsContainer = document.getElementById('still-points-container');
+        const detectStillPointsBtn = document.getElementById('detect-still-points');
+        const clearStillPointsBtn = document.getElementById('clear-still-points');
+        const stillThresholdSlider = document.getElementById('still-threshold');
+        const minStillDurationSlider = document.getElementById('min-still-duration');
+        const thresholdValueSpan = document.getElementById('threshold-value');
+        const durationValueSpan = document.getElementById('duration-value');
         
         // Load horse model
         const loader = new GLTFLoader();
@@ -914,6 +988,269 @@
                   customClips.map(c => `${c.name}: ${c.duration.toFixed(2)}s`).join("\n"));
             console.log("Exported Animation Clips:", customClips);
             console.log("Clip Data:", json);
+        });
+        
+        // Detect Still Points in Animation
+        function detectStillPoints() {
+            if (!mixer || !horse || animations.length === 0) {
+                alert("Model or animation not loaded yet");
+                return;
+            }
+            
+            clearStillPoints();
+            
+            const loadingMessage = document.createElement('div');
+            loadingMessage.textContent = "Analyzing animation...";
+            loadingMessage.style.padding = "10px";
+            stillPointsContainer.appendChild(loadingMessage);
+            
+            // Store current state
+            const wasPlaying = isPlaying;
+            const currentPosition = currentTime;
+            
+            // Pause animation during analysis
+            setPlaying(false);
+            
+            // Get analysis parameters
+            const stillThreshold = parseFloat(stillThresholdSlider.value);
+            const minStillDuration = parseFloat(minStillDurationSlider.value);
+            
+            // Give the UI time to update before starting intensive operation
+            setTimeout(() => {
+                // Perform analysis
+                performStillPointsAnalysis(stillThreshold, minStillDuration)
+                    .then((points) => {
+                        stillPoints = points;
+                        
+                        // Remove loading message
+                        stillPointsContainer.removeChild(loadingMessage);
+                        
+                        // Visualize the results
+                        visualizeStillPoints(stillPoints);
+                        
+                        // Restore state
+                        mixer.setTime(currentPosition);
+                        if (wasPlaying) setPlaying(true);
+                    });
+            }, 50);
+        }
+        
+        // Perform the actual analysis
+        function performStillPointsAnalysis(threshold, minDuration) {
+            return new Promise((resolve) => {
+                const clip = animations[0];
+                const duration = clip.duration;
+                const frameRate = 30; // 30 frames per second for analysis
+                const frameTime = 1 / frameRate;
+                const framesCount = Math.ceil(duration * frameRate);
+                
+                const points = [];
+                
+                let prevPositions = null;
+                let isStill = false;
+                let stillStartTime = 0;
+                
+                // Save current animation state
+                const currentMixerTime = mixer.time;
+                
+                function captureBoneState() {
+                    const state = [];
+                    horse.traverse((obj) => {
+                        if (obj.isBone) {
+                            state.push({
+                                name: obj.name,
+                                position: obj.position.clone(),
+                                quaternion: obj.quaternion.clone()
+                            });
+                        }
+                    });
+                    return state;
+                }
+                
+                function calculateMovement(state1, state2) {
+                    if (!state1 || !state2) return Infinity;
+                    
+                    let totalMovement = 0;
+                    for (let i = 0; i < state1.length; i++) {
+                        const bone1 = state1[i];
+                        const bone2 = state2.find(b => b.name === bone1.name);
+                        
+                        if (bone2) {
+                            // Position difference
+                            const posDiff = bone1.position.distanceTo(bone2.position);
+                            totalMovement += posDiff;
+                            
+                            // Rotation difference - use quaternion dot product
+                            // When quaternions are identical, dot product is 1
+                            // So 1 - dot is the difference (0 means identical)
+                            const quatDiff = 1 - Math.abs(bone1.quaternion.dot(bone2.quaternion));
+                            totalMovement += quatDiff * 2; // Weight rotation changes
+                        }
+                    }
+                    
+                    return totalMovement;
+                }
+                
+                let frameIndex = 0;
+                
+                function processFrame() {
+                    if (frameIndex < framesCount) {
+                        const frameTime = frameIndex / frameRate;
+                        
+                        // Set mixer to this time
+                        mixer.setTime(frameTime);
+                        
+                        // Capture current bone positions
+                        const currentPositions = captureBoneState();
+                        
+                        if (prevPositions) {
+                            // Calculate movement since last frame
+                            const movement = calculateMovement(prevPositions, currentPositions);
+                            
+                            // Check if this is a still point
+                            if (movement < threshold) {
+                                if (!isStill) {
+                                    // Start of still period
+                                    stillStartTime = frameTime;
+                                    isStill = true;
+                                }
+                            } else {
+                                if (isStill) {
+                                    // End of still period
+                                    const stillDuration = frameTime - stillStartTime;
+                                    if (stillDuration >= minDuration) {
+                                        points.push({
+                                            start: stillStartTime,
+                                            end: frameTime,
+                                            duration: stillDuration,
+                                            movement: movement
+                                        });
+                                    }
+                                    isStill = false;
+                                }
+                            }
+                        }
+                        
+                        prevPositions = currentPositions;
+                        frameIndex++;
+                        
+                        // Process frames in chunks to keep UI responsive
+                        if (frameIndex % 10 === 0) {
+                            setTimeout(processFrame, 0);
+                        } else {
+                            processFrame();
+                        }
+                    } else {
+                        // Check if we ended in a still state
+                        if (isStill) {
+                            const stillDuration = duration - stillStartTime;
+                            if (stillDuration >= minDuration) {
+                                points.push({
+                                    start: stillStartTime,
+                                    end: duration,
+                                    duration: stillDuration,
+                                    movement: 0
+                                });
+                            }
+                        }
+                        
+                        // Restore original mixer time
+                        mixer.setTime(currentMixerTime);
+                        
+                        // Resolve with results
+                        resolve(points);
+                    }
+                }
+                
+                // Start processing frames
+                processFrame();
+            });
+        }
+        
+        // Visualize still points on the timeline and list
+        function visualizeStillPoints(points) {
+            // Clear previous still points
+            stillPointsContainer.innerHTML = '';
+            stillPointsLayer.innerHTML = '';
+            
+            if (points.length === 0) {
+                stillPointsContainer.innerHTML = '<div class="still-point-item">No still points detected. Try adjusting threshold.</div>';
+                return;
+            }
+            
+            // Add still points to list
+            points.forEach((point, index) => {
+                const item = document.createElement('div');
+                item.classList.add('still-point-item');
+                item.innerHTML = `
+                    <strong>Still Point ${index + 1}</strong>: 
+                    ${point.start.toFixed(2)}s - ${point.end.toFixed(2)}s 
+                    (${point.duration.toFixed(2)}s)
+                `;
+                item.title = "Click to jump to this still point";
+                item.addEventListener('click', () => {
+                    currentTime = point.start;
+                    mixer.setTime(point.start);
+                    updateTimeDisplay();
+                });
+                stillPointsContainer.appendChild(item);
+                
+                // Add markers to timeline
+                const startPercent = (point.start / totalDuration) * 100;
+                const endPercent = (point.end / totalDuration) * 100;
+                const width = endPercent - startPercent;
+                
+                // Add segment
+                const segment = document.createElement('div');
+                segment.classList.add('still-segment');
+                segment.style.left = `${startPercent}%`;
+                segment.style.width = `${width}%`;
+                segment.title = `Still: ${point.start.toFixed(2)}s - ${point.end.toFixed(2)}s`;
+                stillPointsLayer.appendChild(segment);
+                
+                // Add start marker
+                const startMarker = document.createElement('div');
+                startMarker.classList.add('still-marker');
+                startMarker.style.left = `${startPercent}%`;
+                startMarker.title = `Still starts: ${point.start.toFixed(2)}s`;
+                stillPointsLayer.appendChild(startMarker);
+                
+                // Add end marker
+                const endMarker = document.createElement('div');
+                endMarker.classList.add('still-marker');
+                endMarker.style.left = `${endPercent}%`;
+                endMarker.title = `Still ends: ${point.end.toFixed(2)}s`;
+                stillPointsLayer.appendChild(endMarker);
+            });
+            
+            // Add summary
+            const summary = document.createElement('div');
+            summary.style.marginTop = '10px';
+            summary.innerHTML = `
+                <strong>Found ${points.length} still point${points.length !== 1 ? 's' : ''}</strong>
+                <p>Total still time: ${points.reduce((sum, p) => sum + p.duration, 0).toFixed(2)}s</p>
+                <p>Click on any still point to jump to that position</p>
+            `;
+            stillPointsContainer.appendChild(summary);
+        }
+        
+        // Clear still points visualization
+        function clearStillPoints() {
+            stillPoints = [];
+            stillPointsContainer.innerHTML = '';
+            stillPointsLayer.innerHTML = '';
+        }
+        
+        // Event listeners for still point controls
+        detectStillPointsBtn.addEventListener('click', detectStillPoints);
+        clearStillPointsBtn.addEventListener('click', clearStillPoints);
+        
+        stillThresholdSlider.addEventListener('input', () => {
+            thresholdValueSpan.textContent = parseFloat(stillThresholdSlider.value).toFixed(4);
+        });
+        
+        minStillDurationSlider.addEventListener('input', () => {
+            durationValueSpan.textContent = `${parseFloat(minStillDurationSlider.value).toFixed(2)}s`;
         });
         
         // Animation loop
