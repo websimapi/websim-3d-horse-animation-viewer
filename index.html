@@ -168,119 +168,6 @@
             max-height: 100px;
             overflow-y: auto;
         }
-        /* New styles for still points */
-        .still-marker {
-            position: absolute;
-            width: 2px;
-            height: 100%;
-            background-color: #ffd700;
-            top: 0;
-            z-index: 10;
-        }
-        
-        .still-segment {
-            position: absolute;
-            height: 100%;
-            background-color: rgba(255, 215, 0, 0.2);
-            border-left: 2px solid rgba(255, 215, 0, 0.8);
-            border-right: 2px solid rgba(255, 215, 0, 0.8);
-            top: 0;
-            z-index: 5;
-        }
-        
-        #still-points-container {
-            margin-top: 10px;
-            margin-bottom: 10px;
-        }
-        
-        .still-point-item {
-            background-color: #444;
-            padding: 6px;
-            margin: 4px 0;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        
-        .still-point-item:hover {
-            background-color: #555;
-        }
-        
-        #still-points-controls {
-            margin-bottom: 10px;
-        }
-        
-        #analysis-options {
-            margin-top: 5px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        
-        /* Enhanced styles for detection controls */
-        #analysis-options {
-            margin-top: 5px;
-            display: flex;
-            flex-wrap: wrap;
-            align-items: center;
-            gap: 10px;
-        }
-        
-        .control-group {
-            display: flex;
-            flex-direction: column;
-            background-color: #3a3a3a;
-            padding: 8px;
-            border-radius: 4px;
-            margin-bottom: 5px;
-            min-width: 200px;
-        }
-        
-        .control-group h4 {
-            margin: 0 0 5px 0;
-            font-size: 14px;
-            color: #ccc;
-        }
-        
-        .control-row {
-            display: flex;
-            align-items: center;
-            margin-bottom: 3px;
-        }
-        
-        .control-row label {
-            min-width: 100px;
-            font-size: 12px;
-        }
-        
-        .control-row input[type="range"] {
-            flex: 1;
-            margin: 0 8px;
-        }
-        
-        .control-row span {
-            min-width: 60px;
-            text-align: right;
-            font-size: 12px;
-        }
-        
-        #detection-presets {
-            margin-right: 10px;
-        }
-        
-        .advanced-toggle {
-            cursor: pointer;
-            text-decoration: underline;
-            color: #aaddff;
-            margin-top: 5px;
-            font-size: 12px;
-            user-select: none;
-        }
-        
-        #advanced-settings {
-            margin-top: 5px;
-            padding-top: 5px;
-            border-top: 1px dashed #555;
-        }
     </style>
 </head>
 <body>
@@ -297,70 +184,8 @@
                 <label for="playback-speed">Speed: <span id="speed-value">1.0</span>x</label>
                 <span style="margin-left: 20px;">Time: <span id="current-time">0.00</span>s / <span id="total-time">0.00</span>s</span>
             </div>
-            <div id="still-points-controls">
-                <button id="detect-still-points">Detect Still Points</button>
-                <button id="clear-still-points">Clear Markers</button>
-                
-                <div id="detection-presets">
-                    <button id="preset-strict">Strict</button>
-                    <button id="preset-normal">Normal</button>
-                    <button id="preset-loose">Loose</button>
-                </div>
-                
-                <div id="analysis-options">
-                    <div class="control-group">
-                        <h4>Movement Threshold</h4>
-                        <div class="control-row">
-                            <label for="still-threshold">Sensitivity:</label>
-                            <input type="range" id="still-threshold" min="0.00001" max="0.05" step="0.00001" value="0.001">
-                            <span id="threshold-value">0.001</span>
-                        </div>
-                    </div>
-                    
-                    <div class="control-group">
-                        <h4>Time Constraints</h4>
-                        <div class="control-row">
-                            <label for="min-still-duration">Min Duration:</label>
-                            <input type="range" id="min-still-duration" min="0.01" max="2" step="0.01" value="0.2">
-                            <span id="duration-value">0.2s</span>
-                        </div>
-                    </div>
-                    
-                    <div class="advanced-toggle" id="toggle-advanced">+ Show Advanced Settings</div>
-                    
-                    <div id="advanced-settings" style="display: none; width: 100%;">
-                        <div class="control-group">
-                            <h4>Smoothing</h4>
-                            <div class="control-row">
-                                <label for="smoothing-window">Smoothing:</label>
-                                <input type="range" id="smoothing-window" min="1" max="10" step="1" value="3">
-                                <span id="smoothing-value">3 frames</span>
-                            </div>
-                        </div>
-                        
-                        <div class="control-group">
-                            <h4>Movement Detection</h4>
-                            <div class="control-row">
-                                <label for="movement-weight">Position/Rotation:</label>
-                                <input type="range" id="movement-weight" min="0" max="1" step="0.1" value="0.5">
-                                <span id="weight-value">Balanced</span>
-                            </div>
-                        </div>
-                        
-                        <div class="control-group">
-                            <h4>Gap Filling</h4>
-                            <div class="control-row">
-                                <label for="max-gap">Max Gap:</label>
-                                <input type="range" id="max-gap" min="0" max="1" step="0.05" value="0.1">
-                                <span id="gap-value">0.1s</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
             <div id="timeline">
                 <div id="timeline-segments"></div>
-                <div id="still-points-layer"></div>
                 <div id="timeline-scrubber"></div>
             </div>
         </div>
@@ -398,10 +223,6 @@
                 <h3>Model Information</h3>
                 <div id="bones-info">Loading bone information...</div>
                 <div id="animation-stats"></div>
-                
-                <h3>Still Points</h3>
-                <div>Points where animation has minimal movement:</div>
-                <div id="still-points-container"></div>
             </div>
             
             <div class="panel" id="animation-preview">
@@ -457,16 +278,26 @@
         directionalLight.shadow.mapSize.height = 2048;
         scene.add(directionalLight);
         
-        // Ground plane
-        const groundGeometry = new THREE.PlaneGeometry(20, 20);
-        const groundMaterial = new THREE.MeshStandardMaterial({ 
-            color: 0x333333,
-            roughness: 0.8
+        let environment;
+        const environmentLoader = new GLTFLoader();
+        environmentLoader.load('/low-poly_nature_scene.glb', (gltf) => {
+            environment = gltf.scene;
+            
+            // Set up environment
+            environment.traverse((child) => {
+                if (child.isMesh) {
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                }
+            });
+            
+            // Scale and position the environment appropriately
+            environment.scale.set(2, 2, 2);
+            environment.position.y = 0;
+            
+            // Add to scene
+            scene.add(environment);
         });
-        const ground = new THREE.Mesh(groundGeometry, groundMaterial);
-        ground.rotation.x = -Math.PI / 2;
-        ground.receiveShadow = true;
-        scene.add(ground);
         
         // Variables for model and animations
         let mixer;
@@ -479,7 +310,6 @@
         let currentTime = 0;
         let totalDuration = 0;
         let customClips = [];
-        let stillPoints = [];
         
         // UI Elements
         const playPauseBtn = document.getElementById('play-pause');
@@ -491,7 +321,6 @@
         const timelineScrubber = document.getElementById('timeline-scrubber');
         const timeline = document.getElementById('timeline');
         const timelineSegments = document.getElementById('timeline-segments');
-        const stillPointsLayer = document.getElementById('still-points-layer');
         const startTimeInput = document.getElementById('start-time');
         const endTimeInput = document.getElementById('end-time');
         const clipNameInput = document.getElementById('clip-name');
@@ -500,24 +329,6 @@
         const animationStats = document.getElementById('animation-stats');
         const originalAnimations = document.getElementById('original-animations');
         const customClipsContainer = document.getElementById('custom-clips');
-        const stillPointsContainer = document.getElementById('still-points-container');
-        const detectStillPointsBtn = document.getElementById('detect-still-points');
-        const clearStillPointsBtn = document.getElementById('clear-still-points');
-        const stillThresholdSlider = document.getElementById('still-threshold');
-        const minStillDurationSlider = document.getElementById('min-still-duration');
-        const thresholdValueSpan = document.getElementById('threshold-value');
-        const durationValueSpan = document.getElementById('duration-value');
-        const movementWeightSlider = document.getElementById('movement-weight');
-        const weightValueSpan = document.getElementById('weight-value');
-        const smoothingWindowSlider = document.getElementById('smoothing-window');
-        const smoothingValueSpan = document.getElementById('smoothing-value');
-        const maxGapSlider = document.getElementById('max-gap');
-        const gapValueSpan = document.getElementById('gap-value');
-        const toggleAdvancedBtn = document.getElementById('toggle-advanced');
-        const advancedSettings = document.getElementById('advanced-settings');
-        const presetStrict = document.getElementById('preset-strict');
-        const presetNormal = document.getElementById('preset-normal');
-        const presetLoose = document.getElementById('preset-loose');
         
         // Load horse model
         const loader = new GLTFLoader();
@@ -1115,465 +926,6 @@
             console.log("Clip Data:", json);
         });
         
-        // Toggle advanced settings
-        toggleAdvancedBtn.addEventListener('click', () => {
-            const isVisible = advancedSettings.style.display !== 'none';
-            advancedSettings.style.display = isVisible ? 'none' : 'block';
-            toggleAdvancedBtn.textContent = isVisible ? 
-                '+ Show Advanced Settings' : '- Hide Advanced Settings';
-        });
-        
-        // Preset buttons
-        presetStrict.addEventListener('click', () => {
-            stillThresholdSlider.value = 0.0001;
-            minStillDurationSlider.value = 0.1;
-            smoothingWindowSlider.value = 2;
-            movementWeightSlider.value = 0.5;
-            maxGapSlider.value = 0.05;
-            updateAllSliderLabels();
-        });
-        
-        presetNormal.addEventListener('click', () => {
-            stillThresholdSlider.value = 0.001;
-            minStillDurationSlider.value = 0.2;
-            smoothingWindowSlider.value = 3;
-            movementWeightSlider.value = 0.5;
-            maxGapSlider.value = 0.1;
-            updateAllSliderLabels();
-        });
-        
-        presetLoose.addEventListener('click', () => {
-            stillThresholdSlider.value = 0.005;
-            minStillDurationSlider.value = 0.3;
-            smoothingWindowSlider.value = 5;
-            movementWeightSlider.value = 0.5;
-            maxGapSlider.value = 0.2;
-            updateAllSliderLabels();
-        });
-        
-        function updateAllSliderLabels() {
-            // Update all slider display values
-            thresholdValueSpan.textContent = parseFloat(stillThresholdSlider.value).toFixed(6);
-            durationValueSpan.textContent = `${parseFloat(minStillDurationSlider.value).toFixed(2)}s`;
-            smoothingValueSpan.textContent = `${smoothingWindowSlider.value} frames`;
-            updateWeightLabel();
-            gapValueSpan.textContent = `${parseFloat(maxGapSlider.value).toFixed(2)}s`;
-        }
-        
-        // Update weight label text based on slider value
-        function updateWeightLabel() {
-            const value = parseFloat(movementWeightSlider.value);
-            if (value < 0.3) {
-                weightValueSpan.textContent = "Position";
-            } else if (value > 0.7) {
-                weightValueSpan.textContent = "Rotation";
-            } else {
-                weightValueSpan.textContent = "Balanced";
-            }
-        }
-        
-        // Event listeners for still point controls
-        detectStillPointsBtn.addEventListener('click', detectStillPoints);
-        clearStillPointsBtn.addEventListener('click', clearStillPoints);
-        
-        movementWeightSlider.addEventListener('input', updateWeightLabel);
-        
-        smoothingWindowSlider.addEventListener('input', () => {
-            smoothingValueSpan.textContent = `${smoothingWindowSlider.value} frames`;
-        });
-        
-        maxGapSlider.addEventListener('input', () => {
-            gapValueSpan.textContent = `${parseFloat(maxGapSlider.value).toFixed(2)}s`;
-        });
-        
-        stillThresholdSlider.addEventListener('input', () => {
-            thresholdValueSpan.textContent = parseFloat(stillThresholdSlider.value).toFixed(6);
-        });
-        
-        minStillDurationSlider.addEventListener('input', () => {
-            durationValueSpan.textContent = `${parseFloat(minStillDurationSlider.value).toFixed(2)}s`;
-        });
-        
-        // Clear Still Points
-        function clearStillPoints() {
-            // Clear still points array
-            stillPoints = [];
-            
-            // Clear the still points container
-            stillPointsContainer.innerHTML = '';
-            
-            // Clear the timeline visualization
-            stillPointsLayer.innerHTML = '';
-        }
-        
-        // Detect Still Points in Animation
-        function detectStillPoints() {
-            if (!mixer || !horse || animations.length === 0) {
-                alert("Model or animation not loaded yet");
-                return;
-            }
-            
-            clearStillPoints();
-            
-            const loadingMessage = document.createElement('div');
-            loadingMessage.textContent = "Analyzing animation...";
-            loadingMessage.style.padding = "10px";
-            stillPointsContainer.appendChild(loadingMessage);
-            
-            // Store current state
-            const wasPlaying = isPlaying;
-            const currentPosition = currentTime;
-            
-            // Pause animation during analysis
-            setPlaying(false);
-            
-            // Get analysis parameters
-            const stillThreshold = parseFloat(stillThresholdSlider.value);
-            const minStillDuration = parseFloat(minStillDurationSlider.value);
-            const movingAverageWindowSize = parseInt(smoothingWindowSlider.value);
-            const posRotWeight = parseFloat(movementWeightSlider.value);
-            const maxGapDuration = parseFloat(maxGapSlider.value);
-            
-            // Add some debug information in the UI
-            console.log("Starting still point detection with:", {
-                threshold: stillThreshold,
-                minDuration: minStillDuration,
-                smoothingWindow: movingAverageWindowSize,
-                positionRotationBalance: posRotWeight,
-                maxGap: maxGapDuration
-            });
-            
-            // Give the UI time to update before starting intensive operation
-            setTimeout(() => {
-                // Perform analysis
-                performStillPointsAnalysis(
-                    stillThreshold, 
-                    minStillDuration, 
-                    movingAverageWindowSize, 
-                    posRotWeight, 
-                    maxGapDuration
-                ).then((points) => {
-                    stillPoints = points;
-                    
-                    // Remove loading message
-                    stillPointsContainer.innerHTML = '';
-                    
-                    // Log results
-                    console.log(`Found ${points.length} still points:`, points);
-                    
-                    // Visualize the results
-                    visualizeStillPoints(stillPoints);
-                    
-                    // Restore state
-                    mixer.setTime(currentPosition);
-                    if (wasPlaying) setPlaying(true);
-                });
-            }, 50);
-        }
-        
-        // Visualize still points on the timeline and list
-        function visualizeStillPoints(points) {
-            // Clear previous still points
-            stillPointsContainer.innerHTML = '';
-            stillPointsLayer.innerHTML = '';
-            
-            if (points.length === 0) {
-                stillPointsContainer.innerHTML = '<div class="still-point-item">No still points detected. Try adjusting threshold.</div>';
-                return;
-            }
-            
-            // Add still points to list
-            points.forEach((point, index) => {
-                const item = document.createElement('div');
-                item.classList.add('still-point-item');
-                item.innerHTML = `
-                    <strong>Still Point ${index + 1}</strong>: 
-                    ${point.start.toFixed(2)}s - ${point.end.toFixed(2)}s 
-                    (${point.duration.toFixed(2)}s)
-                `;
-                item.title = "Click to jump to this still point";
-                item.addEventListener('click', () => {
-                    currentTime = point.start;
-                    mixer.setTime(point.start);
-                    updateTimeDisplay();
-                });
-                stillPointsContainer.appendChild(item);
-                
-                // Add markers to timeline
-                const startPercent = (point.start / totalDuration) * 100;
-                const endPercent = (point.end / totalDuration) * 100;
-                const width = endPercent - startPercent;
-                
-                // Add segment
-                const segment = document.createElement('div');
-                segment.classList.add('still-segment');
-                segment.style.left = `${startPercent}%`;
-                segment.style.width = `${width}%`;
-                segment.title = `Still: ${point.start.toFixed(2)}s - ${point.end.toFixed(2)}s`;
-                stillPointsLayer.appendChild(segment);
-                
-                // Add start marker
-                const startMarker = document.createElement('div');
-                startMarker.classList.add('still-marker');
-                startMarker.style.left = `${startPercent}%`;
-                startMarker.title = `Still starts: ${point.start.toFixed(2)}s`;
-                stillPointsLayer.appendChild(startMarker);
-                
-                // Add end marker
-                const endMarker = document.createElement('div');
-                endMarker.classList.add('still-marker');
-                endMarker.style.left = `${endPercent}%`;
-                endMarker.title = `Still ends: ${point.end.toFixed(2)}s`;
-                stillPointsLayer.appendChild(endMarker);
-            });
-            
-            // Add quick actions to create clips from still points
-            const actionsDiv = document.createElement('div');
-            actionsDiv.style.marginTop = '15px';
-            actionsDiv.style.marginBottom = '10px';
-            actionsDiv.innerHTML = `
-                <button id="create-clips-from-stills">Create Clips from Still Points</button>
-                <button id="set-markers-from-stills">Set Start/End from Still Points</button>
-            `;
-            stillPointsContainer.appendChild(actionsDiv);
-            
-            // Create clips from still points
-            document.getElementById('create-clips-from-stills').addEventListener('click', () => {
-                if (points.length < 2) {
-                    alert("Need at least 2 still points to create clips");
-                    return;
-                }
-                
-                for (let i = 0; i < points.length - 1; i++) {
-                    const clipName = `Auto Clip ${i+1}`;
-                    const startTime = points[i].end;
-                    const endTime = points[i+1].start;
-                    
-                    if (endTime > startTime) {
-                        // Set inputs
-                        clipNameInput.value = clipName;
-                        startTimeInput.value = startTime.toFixed(2);
-                        endTimeInput.value = endTime.toFixed(2);
-                        updateSegmentPreview();
-                        
-                        // Save clip
-                        document.getElementById('save-segment').click();
-                    }
-                }
-            });
-            
-            // Set markers from selected still points
-            document.getElementById('set-markers-from-stills').addEventListener('click', () => {
-                if (points.length > 0) {
-                    startTimeInput.value = points[0].end.toFixed(2);
-                    if (points.length > 1) {
-                        endTimeInput.value = points[1].start.toFixed(2);
-                    }
-                    updateSegmentPreview();
-                }
-            });
-            
-            // Add summary
-            const summary = document.createElement('div');
-            summary.style.marginTop = '10px';
-            summary.innerHTML = `
-                <strong>Found ${points.length} still point${points.length !== 1 ? 's' : ''}</strong>
-                <p>Total still time: ${points.reduce((sum, p) => sum + p.duration, 0).toFixed(2)}s</p>
-                <p>Click on any still point to jump to that position</p>
-            `;
-            stillPointsContainer.appendChild(summary);
-        }
-
-        // Perform the actual analysis
-        function performStillPointsAnalysis(threshold, minDuration, windowSize, posRotWeight, maxGap) {
-            return new Promise((resolve) => {
-                const clip = animations[0];
-                const duration = clip.duration;
-                const frameRate = 60; 
-                const frameTime = 1 / frameRate;
-                const framesCount = Math.ceil(duration * frameRate);
-                
-                const points = [];
-                
-                let prevPositions = null;
-                let isStill = false;
-                let stillStartTime = 0;
-                let movementValues = []; 
-                let movingAverageWindow = windowSize || 3; 
-                let lastStillEndTime = -Infinity;
-                
-                // Save current animation state
-                const currentMixerTime = mixer.time;
-                
-                function captureBoneState() {
-                    const state = [];
-                    horse.traverse((obj) => {
-                        if (obj.isBone) {
-                            state.push({
-                                name: obj.name,
-                                position: obj.position.clone(),
-                                quaternion: obj.quaternion.clone()
-                            });
-                        }
-                    });
-                    return state;
-                }
-                
-                function calculateMovement(state1, state2) {
-                    if (!state1 || !state2) return Infinity;
-                    
-                    let totalPositionMovement = 0;
-                    let totalRotationMovement = 0;
-                    let boneCount = 0;
-                    
-                    for (let i = 0; i < state1.length; i++) {
-                        const bone1 = state1[i];
-                        const bone2 = state2.find(b => b.name === bone1.name);
-                        
-                        if (bone2) {
-                            boneCount++;
-                            
-                            // Position difference
-                            const posDiff = bone1.position.distanceTo(bone2.position);
-                            totalPositionMovement += posDiff;
-                            
-                            // Rotation difference - use quaternion dot product
-                            const quatDiff = 1 - Math.abs(bone1.quaternion.dot(bone2.quaternion));
-                            totalRotationMovement += quatDiff * 2; 
-                        }
-                    }
-                    
-                    // Weight between position and rotation based on slider
-                    const posWeight = 1 - posRotWeight;
-                    const rotWeight = posRotWeight;
-                    
-                    // Normalize by bone count to make threshold more consistent
-                    return boneCount > 0 ? 
-                        (totalPositionMovement * posWeight + totalRotationMovement * rotWeight) / boneCount : 
-                        Infinity;
-                }
-                
-                // Function to get smoothed movement using moving average
-                function getSmoothedMovement(newMovement) {
-                    movementValues.push(newMovement);
-                    if (movementValues.length > movingAverageWindow) {
-                        movementValues.shift(); 
-                    }
-                    
-                    // Calculate average movement
-                    return movementValues.reduce((sum, val) => sum + val, 0) / movementValues.length;
-                }
-                
-                let frameIndex = 0;
-                let stillPointsCount = 0;
-                const movementLog = [];
-                
-                function processFrame() {
-                    if (frameIndex < framesCount) {
-                        const frameTime = frameIndex / frameRate;
-                        
-                        // Set mixer to this time
-                        mixer.setTime(frameTime);
-                        
-                        // Capture current bone positions
-                        const currentPositions = captureBoneState();
-                        
-                        if (prevPositions) {
-                            // Calculate movement since last frame
-                            const rawMovement = calculateMovement(prevPositions, currentPositions);
-                            const movement = getSmoothedMovement(rawMovement);
-                            
-                            // Log for debugging
-                            movementLog.push({ time: frameTime, movement: movement });
-                            
-                            // Check if this is a still point
-                            if (movement < threshold) {
-                                if (!isStill) {
-                                    // Check if we should merge with previous still point
-                                    if (maxGap > 0 && frameTime - lastStillEndTime <= maxGap) {
-                                        // Merge with previous still point by extending its end time
-                                        if (points.length > 0) {
-                                            isStill = true;
-                                            stillStartTime = points[points.length - 1].start;
-                                            // Remove the previous point as we'll create a merged one
-                                            points.pop();
-                                            stillPointsCount--;
-                                        } else {
-                                            // Start of still period (no previous to merge with)
-                                            stillStartTime = frameTime;
-                                            isStill = true;
-                                        }
-                                    } else {
-                                        // Start of still period (normal case)
-                                        stillStartTime = frameTime;
-                                        isStill = true;
-                                    }
-                                }
-                            } else {
-                                if (isStill) {
-                                    // End of still period
-                                    const stillDuration = frameTime - stillStartTime;
-                                    if (stillDuration >= minDuration) {
-                                        points.push({
-                                            start: stillStartTime,
-                                            end: frameTime,
-                                            duration: stillDuration,
-                                            movement: movement
-                                        });
-                                        stillPointsCount++;
-                                        lastStillEndTime = frameTime;
-                                    }
-                                    isStill = false;
-                                }
-                            }
-                        }
-                        
-                        prevPositions = currentPositions;
-                        frameIndex++;
-                        
-                        // Update loading message every 30 frames
-                        if (frameIndex % 30 === 0) {
-                            const progress = Math.round((frameIndex / framesCount) * 100);
-                            const loadingMessage = stillPointsContainer.querySelector(':first-child');
-                            if (loadingMessage) {
-                                loadingMessage.textContent = `Analyzing animation... ${progress}% (Found ${stillPointsCount} still points)`;
-                            }
-                            
-                            // Process frames in chunks to keep UI responsive
-                            setTimeout(processFrame, 0);
-                        } else {
-                            processFrame();
-                        }
-                    } else {
-                        // Check if we ended in a still state
-                        if (isStill) {
-                            const stillDuration = duration - stillStartTime;
-                            if (stillDuration >= minDuration) {
-                                points.push({
-                                    start: stillStartTime,
-                                    end: duration,
-                                    duration: stillDuration,
-                                    movement: 0
-                                });
-                            }
-                        }
-                        
-                        // Restore original mixer time
-                        mixer.setTime(currentMixerTime);
-                        
-                        // Add movement log to console for debugging
-                        console.log("Movement log:", movementLog);
-                        
-                        // Resolve with results
-                        resolve(points);
-                    }
-                }
-                
-                // Start processing frames
-                processFrame();
-            });
-        }
-
         // Animation loop
         const clock = new THREE.Clock();
         
