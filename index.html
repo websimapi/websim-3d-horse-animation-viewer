@@ -259,7 +259,7 @@
         
         // Camera setup with proper aspect ratio
         const camera = new THREE.PerspectiveCamera(45, containerWidth / containerHeight, 0.1, 1000);
-        camera.position.set(0, 2, 5);
+        camera.position.set(0, 2, 8);
         
         // Renderer setup with correct dimensions
         const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -357,6 +357,12 @@
                     child.receiveShadow = true;
                 }
             });
+            
+            // Scale down the horse model - it was too large
+            horse.scale.set(0.5, 0.5, 0.5);
+            
+            // Position the horse more to the south
+            horse.position.set(0, 0, 2);
             
             // Add to scene
             scene.add(horse);
