@@ -387,6 +387,8 @@
         const targetMarker = document.getElementById('target-marker');
         let targetPosition = null;
         let isMovingToTarget = false;
+        let pathPoints = [];
+        let currentPathIndex = 0;
         
         // Create a visual marker for the target in 3D space
         const targetVisual = new THREE.Mesh(
@@ -396,14 +398,21 @@
         targetVisual.visible = false;
         scene.add(targetVisual);
         
-        // Add a visual path marker
-        const targetRing = new THREE.Mesh(
-            new THREE.RingGeometry(0.3, 0.4, 32),
-            new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.7, side: THREE.DoubleSide })
-        );
-        targetRing.rotation.x = Math.PI / 2; // Lay flat on the ground
-        targetRing.visible = false;
-        scene.add(targetRing);
+        // Movement controls for the horse (when not in animation preview mode)
+        const movementKeys = {
+            forward: false,
+            backward: false,
+            left: false,
+            right: false
+        };
+        
+        let movementEnabled = true; // Enable movement by default
+        let movementSpeed = 0.05;
+        let rotationSpeed = 0.03;
+        
+        // Initialize horse direction as a global variable
+        // This must be updated when the horse model is loaded and whenever it rotates
+        let horseDirection = new THREE.Vector3(0, 0, 1);
         
         // Load horse model
         const loader = new GLTFLoader();
@@ -423,6 +432,9 @@
             
             // Position the horse more to the south
             horse.position.set(0, 0, 4);
+            
+            // Initialize the horse direction based on the initial rotation
+            horseDirection.set(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), horse.rotation.y);
             
             // Create a bounding box for the horse
             horseCollider = new THREE.Box3().setFromObject(horse);
@@ -528,39 +540,29 @@
                 const intersect = intersects[i];
                 
                 // Skip if we hit the horse
-                if (horse && (intersect.object.parent === horse || isPartOfHorse(intersect.object))) continue;
+                if (horse && intersect.object.parent === horse) continue;
                 
                 // Skip target visual and collision helpers
                 if (intersect.object === targetVisual || 
-                    intersect.object === targetRing ||
                     intersect.object.parent === collisionHelper) continue;
                 
                 // Set target position (make sure it's at the horse's y-level to avoid floating/sinking)
                 targetPosition = new THREE.Vector3(
                     intersect.point.x,
-                    intersect.point.y, // Use actual y for better ground following
+                    horse.position.y, // Keep the same y-level as the horse
                     intersect.point.z
                 );
                 
-                // Position both the 2D and 3D markers
-                const screenPosition = targetPosition.clone().project(camera);
+                // Position the 2D marker on screen
+                const screenPosition = intersect.point.clone().project(camera);
                 targetMarker.style.left = (screenPosition.x * 0.5 + 0.5) * containerWidth + 'px';
                 targetMarker.style.top = (-screenPosition.y * 0.5 + 0.5) * containerHeight + 'px';
                 targetMarker.style.display = 'block';
                 
-                // Position the 3D visual marker with animation
+                // Position the 3D visual marker
                 targetVisual.position.copy(targetPosition);
                 targetVisual.position.y += 0.025; // Slightly above ground
                 targetVisual.visible = true;
-                
-                // Position the ring marker
-                targetRing.position.copy(targetPosition);
-                targetRing.position.y += 0.025; // Slightly above ground
-                targetRing.visible = true;
-                targetRing.scale.set(1, 1, 1);
-                
-                // Animate the ring
-                animateTargetRing();
                 
                 // Start movement
                 isMovingToTarget = true;
@@ -572,50 +574,6 @@
                 break;
             }
         });
-        
-        // Helper function to check if an object is part of the horse model
-        function isPartOfHorse(object) {
-            if (!horse) return false;
-            let current = object;
-            while (current) {
-                if (current === horse) return true;
-                current = current.parent;
-            }
-            return false;
-        }
-        
-        // Animate the target ring for better visibility
-        function animateTargetRing() {
-            if (!targetRing.visible) return;
-            
-            // Scale animation
-            const initialScale = 0.5;
-            const targetScale = 1.5;
-            const duration = 1000; // milliseconds
-            const start = Date.now();
-            
-            function updateRing() {
-                const elapsed = Date.now() - start;
-                if (elapsed > duration) {
-                    targetRing.scale.set(initialScale, initialScale, initialScale);
-                    if (targetRing.visible) {
-                        animateTargetRing(); // Start again
-                    }
-                    return;
-                }
-                
-                const progress = elapsed / duration;
-                const scale = initialScale + (targetScale - initialScale) * progress;
-                targetRing.scale.set(scale, scale, scale);
-                targetRing.material.opacity = 0.7 * (1 - progress);
-                
-                requestAnimationFrame(updateRing);
-            }
-            
-            targetRing.scale.set(initialScale, initialScale, initialScale);
-            targetRing.material.opacity = 0.7;
-            updateRing();
-        }
         
         // Find and play the "walk" animation
         function findAndPlayWalkAnimation() {
@@ -630,13 +588,8 @@
             
             if (walkClip) {
                 // Stop current animation with slight crossfade
-                if (currentAction && currentAction !== walkAnimationAction) {
+                if (currentAction) {
                     currentAction.fadeOut(0.2);
-                }
-                
-                // Check if walk animation is already playing
-                if (walkAnimationAction) {
-                    return true;
                 }
                 
                 // Play walk animation
@@ -658,13 +611,8 @@
             
             if (originalWalkClip) {
                 // Stop current animation with slight crossfade
-                if (currentAction && currentAction !== walkAnimationAction) {
+                if (currentAction) {
                     currentAction.fadeOut(0.2);
-                }
-                
-                // Check if walk animation is already playing
-                if (walkAnimationAction) {
-                    return true;
                 }
                 
                 // Play walk animation
@@ -701,19 +649,6 @@
             }
         }
         
-        // Movement controls for the horse (when not in animation preview mode)
-        const movementKeys = {
-            forward: false,
-            backward: false,
-            left: false,
-            right: false
-        };
-        
-        let movementEnabled = true; // Enable movement by default
-        let movementSpeed = 0.05;
-        let rotationSpeed = 0.03;
-        let horseDirection = new THREE.Vector3(0, 0, 1);
-        
         // Handle movement controls
         document.addEventListener('keydown', (e) => {
             if (e.code === 'KeyM') {
@@ -730,7 +665,6 @@
                     // Cancel any ongoing movement
                     isMovingToTarget = false;
                     targetVisual.visible = false;
-                    targetRing.visible = false;
                     targetMarker.style.display = 'none';
                     stopWalkAnimation();
                 }
@@ -740,7 +674,6 @@
             if (e.code === 'Escape' && isMovingToTarget) {
                 isMovingToTarget = false;
                 targetVisual.visible = false;
-                targetRing.visible = false;
                 targetMarker.style.display = 'none';
                 stopWalkAnimation();
             }
@@ -750,6 +683,11 @@
             if (e.code === 'KeyS' || e.code === 'ArrowDown') movementKeys.backward = true;
             if (e.code === 'KeyA' || e.code === 'ArrowLeft') movementKeys.left = true;
             if (e.code === 'KeyD' || e.code === 'ArrowRight') movementKeys.right = true;
+            
+            // Find walk animation if any movement keys are pressed
+            if (movementEnabled && (movementKeys.forward || movementKeys.backward) && !walkAnimationAction) {
+                findAndPlayWalkAnimation();
+            }
         });
         
         document.addEventListener('keyup', (e) => {
@@ -1294,7 +1232,7 @@
             console.log("Clip Data:", json);
         });
         
-        // Update horse movement function to handle click-to-move
+        // Update horse movement function to handle click-to-move and keyboard controls
         function updateHorsePosition() {
             if (!horse) return;
             
@@ -1304,9 +1242,16 @@
                 // Handle keyboard movement
                 const moveDistance = movementSpeed;
                 
+                // Make sure the horse direction is correctly initialized
+                if (!horseDirection) {
+                    horseDirection = new THREE.Vector3(0, 0, 1).applyAxisAngle(
+                        new THREE.Vector3(0, 1, 0), horse.rotation.y
+                    );
+                }
+                
                 // Calculate movement based on keys pressed
                 if (movementKeys.forward) {
-                    // Calculate next position
+                    // Calculate next position by moving along the current facing direction
                     const forwardMove = horseDirection.clone().multiplyScalar(moveDistance);
                     const nextPosition = horse.position.clone().add(forwardMove);
                     
@@ -1319,7 +1264,6 @@
                         if (isMovingToTarget) {
                             isMovingToTarget = false;
                             targetVisual.visible = false;
-                            targetRing.visible = false;
                             targetMarker.style.display = 'none';
                         }
                     }
@@ -1339,7 +1283,6 @@
                         if (isMovingToTarget) {
                             isMovingToTarget = false;
                             targetVisual.visible = false;
-                            targetRing.visible = false;
                             targetMarker.style.display = 'none';
                         }
                     }
@@ -1357,7 +1300,6 @@
                     if (isMovingToTarget) {
                         isMovingToTarget = false;
                         targetVisual.visible = false;
-                        targetRing.visible = false;
                         targetMarker.style.display = 'none';
                     }
                 }
@@ -1373,7 +1315,6 @@
                     if (isMovingToTarget) {
                         isMovingToTarget = false;
                         targetVisual.visible = false;
-                        targetRing.visible = false;
                         targetMarker.style.display = 'none';
                     }
                 }
@@ -1382,9 +1323,6 @@
                 if (isMovingToTarget && targetPosition) {
                     // Get direction to target
                     const toTarget = new THREE.Vector3().subVectors(targetPosition, horse.position);
-                    // Keep y-level consistent to avoid unwanted vertical movement
-                    toTarget.y = 0;
-                    
                     const distance = toTarget.length();
                     
                     if (distance > 0.2) { // Stop when close enough
@@ -1419,7 +1357,6 @@
                             // For now, we'll just stop
                             isMovingToTarget = false;
                             targetVisual.visible = false;
-                            targetRing.visible = false;
                             targetMarker.style.display = 'none';
                             stopWalkAnimation();
                         }
@@ -1427,15 +1364,9 @@
                         // Reached target
                         isMovingToTarget = false;
                         targetVisual.visible = false;
-                        targetRing.visible = false;
                         targetMarker.style.display = 'none';
                         stopWalkAnimation();
                     }
-                    
-                    // Update the screenPosition for the 2D marker
-                    const screenPosition = targetPosition.clone().project(camera);
-                    targetMarker.style.left = (screenPosition.x * 0.5 + 0.5) * containerWidth + 'px';
-                    targetMarker.style.top = (-screenPosition.y * 0.5 + 0.5) * containerHeight + 'px';
                 }
                 
                 // Update horse collider if moved
@@ -1467,8 +1398,7 @@
             
             // Update animations if playing or moving
             if (mixer && (isPlaying || isMovingToTarget || 
-                (movementEnabled && (movementKeys.forward || movementKeys.backward || 
-                                   movementKeys.left || movementKeys.right)))) {
+                (movementEnabled && (movementKeys.forward || movementKeys.backward)))) {
                 mixer.update(delta);
                 
                 if (isPlaying) {
