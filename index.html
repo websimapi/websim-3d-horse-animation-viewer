@@ -633,8 +633,69 @@
                 // Clone track times and values
                 const times = [];
                 const values = [];
+                const valueSize = track.getValueSize();
+                const isQuaternion = track.name.includes('quaternion');
                 
-                // Filter times within our range and adjust them
+                // First, find keyframes we need to sample or include
+                let firstIndex = -1;
+                let lastIndex = -1;
+                
+                // Find frames that bracket our start and end times
+                for (let i = 0; i < track.times.length; i++) {
+                    if (track.times[i] <= startTime && (i === track.times.length - 1 || track.times[i+1] > startTime)) {
+                        firstIndex = i;
+                    }
+                    if (track.times[i] >= endTime) {
+                        lastIndex = i;
+                        break;
+                    }
+                }
+                
+                // If we need to insert a value at the exact start time and it doesn't exist
+                if (firstIndex !== -1 && track.times[firstIndex] !== startTime) {
+                    // Interpolate value at exact start time
+                    const t0 = track.times[firstIndex];
+                    const t1 = track.times[Math.min(firstIndex + 1, track.times.length - 1)];
+                    const alpha = (startTime - t0) / (t1 - t0 || 1);
+                    
+                    // Add exact start time keyframe
+                    times.push(0); // Adjusted to 0 for the new clip
+                    
+                    if (isQuaternion) {
+                        // Special handling for quaternions to avoid flipping
+                        const q0 = new THREE.Quaternion(
+                            track.values[firstIndex * valueSize],
+                            track.values[firstIndex * valueSize + 1],
+                            track.values[firstIndex * valueSize + 2],
+                            track.values[firstIndex * valueSize + 3]
+                        );
+                        
+                        const q1 = new THREE.Quaternion(
+                            track.values[(firstIndex + 1) * valueSize],
+                            track.values[(firstIndex + 1) * valueSize + 1],
+                            track.values[(firstIndex + 1) * valueSize + 2],
+                            track.values[(firstIndex + 1) * valueSize + 3]
+                        );
+                        
+                        // Use slerp for proper quaternion interpolation
+                        const qResult = new THREE.Quaternion();
+                        qResult.slerpQuaternions(q0, q1, alpha);
+                        
+                        // Store interpolated quaternion
+                        for (let j = 0; j < valueSize; j++) {
+                            values.push(j === 0 ? qResult.x : j === 1 ? qResult.y : j === 2 ? qResult.z : qResult.w);
+                        }
+                    } else {
+                        // Linear interpolation for other properties
+                        for (let j = 0; j < valueSize; j++) {
+                            const v0 = track.values[firstIndex * valueSize + j];
+                            const v1 = track.values[(firstIndex + 1) * valueSize + j];
+                            values.push(v0 + alpha * (v1 - v0));
+                        }
+                    }
+                }
+                
+                // Add keyframes within our range (adjusted to start from 0)
                 for (let i = 0; i < track.times.length; i++) {
                     const time = track.times[i];
                     
@@ -642,29 +703,107 @@
                         times.push(time - startTime);
                         
                         // Copy corresponding values
-                        const valuesPerTime = track.values.length / track.times.length;
-                        for (let j = 0; j < valuesPerTime; j++) {
-                            values.push(track.values[i * valuesPerTime + j]);
+                        for (let j = 0; j < valueSize; j++) {
+                            values.push(track.values[i * valueSize + j]);
                         }
                     }
                 }
                 
-                // Create new track
+                // If we need to insert a value at the exact end time and it doesn't exist
+                const lastTime = times.length > 0 ? times[times.length - 1] + startTime : 0;
+                if (lastTime !== endTime) {
+                    // Find frames that bracket our end time
+                    let beforeIndex = -1;
+                    let afterIndex = -1;
+                    
+                    for (let i = 0; i < track.times.length - 1; i++) {
+                        if (track.times[i] <= endTime && track.times[i+1] >= endTime) {
+                            beforeIndex = i;
+                            afterIndex = i + 1;
+                            break;
+                        }
+                    }
+                    
+                    if (beforeIndex !== -1) {
+                        // Interpolate value at exact end time
+                        const t0 = track.times[beforeIndex];
+                        const t1 = track.times[afterIndex];
+                        const alpha = (endTime - t0) / (t1 - t0 || 1);
+                        
+                        // Add exact end time keyframe
+                        times.push(endTime - startTime);
+                        
+                        if (isQuaternion) {
+                            // Special handling for quaternions
+                            const q0 = new THREE.Quaternion(
+                                track.values[beforeIndex * valueSize],
+                                track.values[beforeIndex * valueSize + 1],
+                                track.values[beforeIndex * valueSize + 2],
+                                track.values[beforeIndex * valueSize + 3]
+                            );
+                            
+                            const q1 = new THREE.Quaternion(
+                                track.values[afterIndex * valueSize],
+                                track.values[afterIndex * valueSize + 1],
+                                track.values[afterIndex * valueSize + 2],
+                                track.values[afterIndex * valueSize + 3]
+                            );
+                            
+                            // Use slerp for proper quaternion interpolation
+                            const qResult = new THREE.Quaternion();
+                            qResult.slerpQuaternions(q0, q1, alpha);
+                            
+                            // Store interpolated quaternion
+                            for (let j = 0; j < valueSize; j++) {
+                                values.push(j === 0 ? qResult.x : j === 1 ? qResult.y : j === 2 ? qResult.z : qResult.w);
+                            }
+                        } else {
+                            // Linear interpolation for other properties
+                            for (let j = 0; j < valueSize; j++) {
+                                const v0 = track.values[beforeIndex * valueSize + j];
+                                const v1 = track.values[afterIndex * valueSize + j];
+                                values.push(v0 + alpha * (v1 - v0));
+                            }
+                        }
+                    }
+                }
+                
+                // Only create track if we have keyframes
                 if (times.length > 0) {
-                    const newTrack = new THREE.KeyframeTrack(
-                        track.name,
-                        times,
-                        values,
-                        track.interpolation
-                    );
+                    // Determine appropriate track constructor based on track type
+                    let newTrack;
+                    
+                    if (track instanceof THREE.QuaternionKeyframeTrack) {
+                        newTrack = new THREE.QuaternionKeyframeTrack(
+                            track.name,
+                            times,
+                            values,
+                            THREE.InterpolateLinear // Use explicit interpolation
+                        );
+                    } else if (track instanceof THREE.VectorKeyframeTrack) {
+                        newTrack = new THREE.VectorKeyframeTrack(
+                            track.name,
+                            times,
+                            values,
+                            track.interpolation
+                        );
+                    } else {
+                        newTrack = new THREE.KeyframeTrack(
+                            track.name,
+                            times,
+                            values,
+                            track.interpolation
+                        );
+                    }
+                    
                     tracks.push(newTrack);
                 }
             });
             
-            // Create new clip
+            // Create new clip with the adjusted tracks
             return new THREE.AnimationClip(name, endTime - startTime, tracks);
         }
-        
+
         // Add clip to UI
         function addClipToUI(clip, index) {
             // Add to list
@@ -719,10 +858,13 @@
         function playCustomClip(index) {
             if (!mixer || index >= customClips.length) return;
             
-            // Stop current animation
+            // Stop current animation and reset position
             if (currentAction) {
                 currentAction.stop();
             }
+            
+            // Reset mixer to clear any residual state
+            mixer.stopAllAction();
             
             // Start new animation
             const clip = customClips[index];
