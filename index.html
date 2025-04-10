@@ -31,6 +31,8 @@
             border-radius: 10px;
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
             max-width: 90%;
+            max-height: 30vh;
+            overflow-y: auto;
         }
         button {
             padding: 8px 16px;
@@ -44,6 +46,10 @@
         }
         button:hover {
             background-color: #5d9e4f;
+        }
+        button.active {
+            background-color: #2e5027;
+            box-shadow: 0 0 8px rgba(93, 158, 79, 0.8);
         }
         #loading {
             position: absolute;
@@ -65,12 +71,22 @@
             padding: 10px;
             border-radius: 5px;
         }
+        #animation-info {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: white;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+        }
     </style>
 </head>
 <body>
     <div id="scene-container"></div>
     <div id="loading">Loading horse model...</div>
     <div id="info">Use mouse to rotate the view, scroll to zoom</div>
+    <div id="animation-info"></div>
     <div id="controls"></div>
 
     <script type="importmap">
@@ -134,6 +150,11 @@
         let horse;
         let animations = [];
         let currentAction = null;
+        let animButtons = [];
+        let currentAnimationIndex = -1;
+        
+        // Animation info element
+        const animationInfoElement = document.getElementById('animation-info');
         
         // Load horse model
         const loader = new GLTFLoader();
@@ -158,14 +179,28 @@
             mixer = new THREE.AnimationMixer(horse);
             animations = gltf.animations;
             
+            console.log("Available animations:", animations.map(a => a.name));
+            
+            // Update animation info display
+            updateAnimationInfo();
+            
             // Create animation buttons
             const controlsElement = document.getElementById('controls');
-            animations.forEach((clip, index) => {
-                const button = document.createElement('button');
-                button.textContent = formatAnimationName(clip.name);
-                button.addEventListener('click', () => playAnimation(index));
-                controlsElement.appendChild(button);
-            });
+            
+            // If no animations found, show a message
+            if (animations.length === 0) {
+                controlsElement.innerHTML = '<div style="color: #444; font-weight: bold;">No animations found in the model</div>';
+            } else {
+                // Create buttons for each animation
+                animations.forEach((clip, index) => {
+                    const button = document.createElement('button');
+                    button.textContent = formatAnimationName(clip.name);
+                    button.dataset.index = index;
+                    button.addEventListener('click', () => playAnimation(index));
+                    controlsElement.appendChild(button);
+                    animButtons.push(button);
+                });
+            }
             
             // Hide loading message
             document.getElementById('loading').style.display = 'none';
@@ -188,6 +223,19 @@
                 'Error loading horse model. Please try again.';
         });
         
+        // Update animation info display
+        function updateAnimationInfo() {
+            let infoText = `Total Animations: ${animations.length}`;
+            
+            if (currentAnimationIndex >= 0 && animations[currentAnimationIndex]) {
+                const currentAnim = animations[currentAnimationIndex];
+                infoText += `<br>Current: ${formatAnimationName(currentAnim.name)}`;
+                infoText += `<br>Duration: ${currentAnim.duration.toFixed(2)}s`;
+            }
+            
+            animationInfoElement.innerHTML = infoText;
+        }
+        
         // Format animation names for buttons
         function formatAnimationName(name) {
             // Replace underscores with spaces and capitalize
@@ -204,6 +252,15 @@
                 currentAction.fadeOut(0.5);
             }
             
+            // Update active button
+            animButtons.forEach(btn => {
+                if (parseInt(btn.dataset.index) === index) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+            
             // Start new animation
             const clip = animations[index];
             const action = mixer.clipAction(clip);
@@ -211,6 +268,10 @@
             action.fadeIn(0.5);
             action.play();
             currentAction = action;
+            currentAnimationIndex = index;
+            
+            // Update animation info
+            updateAnimationInfo();
         }
         
         // Animation loop
@@ -243,4 +304,3 @@
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 </body>
 </html>
-
