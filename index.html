@@ -3,39 +3,86 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Horse Animation Viewer</title>
+    <title>3D Horse Animation Editor</title>
     <style>
         body {
             margin: 0;
             padding: 0;
             overflow: hidden;
             font-family: Arial, sans-serif;
-            background-color: #f0f0f0;
+            background-color: #2a2a2a;
+            color: #f0f0f0;
         }
         #scene-container {
             position: absolute;
             width: 100%;
-            height: 100%;
+            height: 70%;
         }
-        #controls {
+        #editor-panel {
             position: absolute;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 30%;
+            background-color: #333;
             display: flex;
-            flex-wrap: wrap;
-            justify-content: center;
-            gap: 10px;
-            padding: 15px;
-            background-color: rgba(255, 255, 255, 0.7);
-            border-radius: 10px;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-            max-width: 90%;
-            max-height: 30vh;
+            flex-direction: column;
+            border-top: 2px solid #555;
+        }
+        #timeline-container {
+            padding: 10px;
+            border-bottom: 1px solid #444;
+        }
+        #timeline {
+            width: 100%;
+            height: 30px;
+            background-color: #222;
+            position: relative;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        #timeline-scrubber {
+            position: absolute;
+            width: 2px;
+            height: 100%;
+            background-color: #f00;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+        }
+        #timeline-segments {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            width: 100%;
+        }
+        .timeline-segment {
+            position: absolute;
+            height: 100%;
+            background-color: rgba(100, 180, 255, 0.3);
+            border-left: 2px solid rgba(100, 180, 255, 0.8);
+            border-right: 2px solid rgba(100, 180, 255, 0.8);
+        }
+        #control-panels {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+        .panel {
+            flex: 1;
+            padding: 10px;
+            border-right: 1px solid #444;
             overflow-y: auto;
         }
+        .panel h3 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            border-bottom: 1px solid #555;
+            padding-bottom: 5px;
+        }
         button {
-            padding: 8px 16px;
+            padding: 8px 12px;
             background-color: #4a7e3f;
             color: white;
             border: none;
@@ -43,6 +90,7 @@
             cursor: pointer;
             font-weight: bold;
             transition: background-color 0.3s;
+            margin: 2px;
         }
         button:hover {
             background-color: #5d9e4f;
@@ -50,6 +98,18 @@
         button.active {
             background-color: #2e5027;
             box-shadow: 0 0 8px rgba(93, 158, 79, 0.8);
+        }
+        input[type="range"] {
+            width: 100%;
+            margin: 10px 0;
+        }
+        input[type="number"] {
+            width: 60px;
+            background-color: #444;
+            color: white;
+            border: 1px solid #555;
+            padding: 4px;
+            border-radius: 3px;
         }
         #loading {
             position: absolute;
@@ -61,6 +121,7 @@
             padding: 20px;
             border-radius: 10px;
             font-size: 20px;
+            z-index: 100;
         }
         #info {
             position: absolute;
@@ -71,14 +132,41 @@
             padding: 10px;
             border-radius: 5px;
         }
-        #animation-info {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            color: white;
-            background-color: rgba(0, 0, 0, 0.5);
-            padding: 10px;
-            border-radius: 5px;
+        .flex-row {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .flex-row label {
+            margin-right: 10px;
+            min-width: 100px;
+        }
+        #segments-list {
+            margin-top: 10px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+        .segment-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 5px;
+            border-bottom: 1px solid #444;
+        }
+        .segment-item:hover {
+            background-color: #444;
+        }
+        code {
+            display: block;
+            white-space: pre-wrap;
+            background-color: #222;
+            padding: 8px;
+            border-radius: 4px;
+            margin-top: 10px;
+            font-family: monospace;
+            max-height: 100px;
+            overflow-y: auto;
         }
     </style>
 </head>
@@ -86,8 +174,65 @@
     <div id="scene-container"></div>
     <div id="loading">Loading horse model...</div>
     <div id="info">Use mouse to rotate the view, scroll to zoom</div>
-    <div id="animation-info"></div>
-    <div id="controls"></div>
+    
+    <div id="editor-panel">
+        <div id="timeline-container">
+            <div class="flex-row">
+                <button id="play-pause">▶️ Play</button>
+                <button id="loop-toggle">🔁 Loop</button>
+                <input type="range" id="playback-speed" min="0.1" max="2" step="0.1" value="1">
+                <label for="playback-speed">Speed: <span id="speed-value">1.0</span>x</label>
+                <span style="margin-left: 20px;">Time: <span id="current-time">0.00</span>s / <span id="total-time">0.00</span>s</span>
+            </div>
+            <div id="timeline">
+                <div id="timeline-segments"></div>
+                <div id="timeline-scrubber"></div>
+            </div>
+        </div>
+        
+        <div id="control-panels">
+            <div class="panel" id="clip-editor">
+                <h3>Animation Clip Editor</h3>
+                <div class="flex-row">
+                    <label for="clip-name">Clip Name:</label>
+                    <input type="text" id="clip-name" value="New Clip" style="flex: 1; background: #444; color: white; border: 1px solid #555; padding: 5px;">
+                </div>
+                <div class="flex-row">
+                    <label for="start-time">Start Time:</label>
+                    <input type="number" id="start-time" min="0" step="0.01" value="0">
+                    <button id="set-start">Set Current</button>
+                </div>
+                <div class="flex-row">
+                    <label for="end-time">End Time:</label>
+                    <input type="number" id="end-time" min="0" step="0.01" value="1">
+                    <button id="set-end">Set Current</button>
+                </div>
+                <div class="flex-row">
+                    <button id="preview-segment">Preview</button>
+                    <button id="save-segment">Save Clip</button>
+                </div>
+                
+                <h3>Saved Clips</h3>
+                <div id="segments-list"></div>
+                <div>
+                    <button id="export-clips">Export All Clips</button>
+                </div>
+            </div>
+            
+            <div class="panel" id="model-info">
+                <h3>Model Information</h3>
+                <div id="bones-info">Loading bone information...</div>
+                <div id="animation-stats"></div>
+            </div>
+            
+            <div class="panel" id="animation-preview">
+                <h3>Animation Preview</h3>
+                <div id="original-animations"></div>
+                <h4>Custom Clips</h4>
+                <div id="custom-clips"></div>
+            </div>
+        </div>
+    </div>
 
     <script type="importmap">
         {
@@ -104,17 +249,16 @@
 
         // Scene setup
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x87CEEB);
+        scene.background = new THREE.Color(0x2a2a2a);
         
         // Camera setup
-        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / (window.innerHeight * 0.7), 0.1, 1000);
         camera.position.set(0, 2, 5);
         
         // Renderer setup
         const renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setSize(window.innerWidth, window.innerHeight * 0.7);
         renderer.setPixelRatio(window.devicePixelRatio);
-        renderer.outputEncoding = THREE.sRGBEncoding;
         renderer.shadowMap.enabled = true;
         document.getElementById('scene-container').appendChild(renderer.domElement);
         
@@ -137,7 +281,7 @@
         // Ground plane
         const groundGeometry = new THREE.PlaneGeometry(20, 20);
         const groundMaterial = new THREE.MeshStandardMaterial({ 
-            color: 0x567d46,
+            color: 0x333333,
             roughness: 0.8
         });
         const ground = new THREE.Mesh(groundGeometry, groundMaterial);
@@ -150,11 +294,31 @@
         let horse;
         let animations = [];
         let currentAction = null;
-        let animButtons = [];
-        let currentAnimationIndex = -1;
+        let isPlaying = false;
+        let isLooping = true;
+        let playbackSpeed = 1.0;
+        let currentTime = 0;
+        let totalDuration = 0;
+        let customClips = [];
         
-        // Animation info element
-        const animationInfoElement = document.getElementById('animation-info');
+        // UI Elements
+        const playPauseBtn = document.getElementById('play-pause');
+        const loopToggleBtn = document.getElementById('loop-toggle');
+        const playbackSpeedSlider = document.getElementById('playback-speed');
+        const speedValueSpan = document.getElementById('speed-value');
+        const currentTimeSpan = document.getElementById('current-time');
+        const totalTimeSpan = document.getElementById('total-time');
+        const timelineScrubber = document.getElementById('timeline-scrubber');
+        const timeline = document.getElementById('timeline');
+        const timelineSegments = document.getElementById('timeline-segments');
+        const startTimeInput = document.getElementById('start-time');
+        const endTimeInput = document.getElementById('end-time');
+        const clipNameInput = document.getElementById('clip-name');
+        const segmentsList = document.getElementById('segments-list');
+        const bonesInfo = document.getElementById('bones-info');
+        const animationStats = document.getElementById('animation-stats');
+        const originalAnimations = document.getElementById('original-animations');
+        const customClipsContainer = document.getElementById('custom-clips');
         
         // Load horse model
         const loader = new GLTFLoader();
@@ -169,9 +333,6 @@
                 }
             });
             
-            // Center and scale the horse as needed
-            horse.scale.set(1, 1, 1);
-            
             // Add to scene
             scene.add(horse);
             
@@ -181,34 +342,32 @@
             
             console.log("Available animations:", animations.map(a => a.name));
             
-            // Update animation info display
-            updateAnimationInfo();
+            // Display model information
+            displayModelInfo(horse);
             
-            // Create animation buttons
-            const controlsElement = document.getElementById('controls');
+            // Display animation information
+            displayAnimationInfo(animations);
             
-            // If no animations found, show a message
-            if (animations.length === 0) {
-                controlsElement.innerHTML = '<div style="color: #444; font-weight: bold;">No animations found in the model</div>';
-            } else {
-                // Create buttons for each animation
-                animations.forEach((clip, index) => {
-                    const button = document.createElement('button');
-                    button.textContent = formatAnimationName(clip.name);
-                    button.dataset.index = index;
-                    button.addEventListener('click', () => playAnimation(index));
-                    controlsElement.appendChild(button);
-                    animButtons.push(button);
-                });
+            // Set up animation controls
+            if (animations.length > 0) {
+                // Get total duration
+                totalDuration = animations[0].duration;
+                totalTimeSpan.textContent = totalDuration.toFixed(2);
+                endTimeInput.value = totalDuration.toFixed(2);
+                endTimeInput.max = totalDuration;
+                startTimeInput.max = totalDuration;
+                
+                // Create initial animation action
+                currentAction = mixer.clipAction(animations[0]);
+                currentAction.clampWhenFinished = true;
+                currentAction.play();
+                
+                // Pause it initially
+                mixer.timeScale = 0;
             }
             
             // Hide loading message
             document.getElementById('loading').style.display = 'none';
-            
-            // Play default animation if available
-            if (animations.length > 0) {
-                playAnimation(0);
-            }
         }, 
         // Progress callback
         (xhr) => {
@@ -223,56 +382,397 @@
                 'Error loading horse model. Please try again.';
         });
         
-        // Update animation info display
-        function updateAnimationInfo() {
-            let infoText = `Total Animations: ${animations.length}`;
+        // Display Model Information
+        function displayModelInfo(model) {
+            let boneCount = 0;
+            let boneInfo = '<h4>Skeleton Hierarchy:</h4><ul>';
             
-            if (currentAnimationIndex >= 0 && animations[currentAnimationIndex]) {
-                const currentAnim = animations[currentAnimationIndex];
-                infoText += `<br>Current: ${formatAnimationName(currentAnim.name)}`;
-                infoText += `<br>Duration: ${currentAnim.duration.toFixed(2)}s`;
+            model.traverse((object) => {
+                if (object.isBone) {
+                    boneCount++;
+                    boneInfo += `<li>${object.name}</li>`;
+                }
+            });
+            
+            boneInfo += '</ul>';
+            bonesInfo.innerHTML = `<strong>Total Bones:</strong> ${boneCount}<br>${boneInfo}`;
+        }
+        
+        // Display Animation Information
+        function displayAnimationInfo(anims) {
+            if (anims.length === 0) {
+                animationStats.innerHTML = "No animations found";
+                return;
             }
             
-            animationInfoElement.innerHTML = infoText;
+            let statsHtml = '';
+            anims.forEach((anim, index) => {
+                statsHtml += `<strong>Animation ${index}</strong><br>`;
+                statsHtml += `Name: ${anim.name}<br>`;
+                statsHtml += `Duration: ${anim.duration.toFixed(2)}s<br>`;
+                statsHtml += `Tracks: ${anim.tracks.length}<br><br>`;
+                
+                // Create button for original animation
+                const button = document.createElement('button');
+                button.textContent = anim.name || `Animation ${index}`;
+                button.addEventListener('click', () => playOriginalAnimation(index));
+                originalAnimations.appendChild(button);
+            });
+            
+            animationStats.innerHTML = statsHtml;
         }
         
-        // Format animation names for buttons
-        function formatAnimationName(name) {
-            // Replace underscores with spaces and capitalize
-            return name.replace(/_/g, ' ')
-                .replace(/\w\S*/g, txt => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
-        }
-        
-        // Play animation function
-        function playAnimation(index) {
+        // Play original animation
+        function playOriginalAnimation(index) {
             if (!mixer || index >= animations.length) return;
             
             // Stop current animation
             if (currentAction) {
-                currentAction.fadeOut(0.5);
+                currentAction.stop();
             }
             
-            // Update active button
-            animButtons.forEach(btn => {
-                if (parseInt(btn.dataset.index) === index) {
-                    btn.classList.add('active');
-                } else {
+            // Start new animation
+            const clip = animations[index];
+            currentAction = mixer.clipAction(clip);
+            currentAction.clampWhenFinished = !isLooping;
+            currentAction.loop = isLooping ? THREE.LoopRepeat : THREE.LoopOnce;
+            currentAction.reset();
+            currentAction.play();
+            
+            // Update UI
+            startTimeInput.value = 0;
+            endTimeInput.value = clip.duration.toFixed(2);
+            totalDuration = clip.duration;
+            totalTimeSpan.textContent = totalDuration.toFixed(2);
+            
+            // Highlight active button
+            originalAnimations.querySelectorAll('button').forEach((btn, i) => {
+                btn.classList.toggle('active', i === index);
+            });
+            originalAnimations.querySelectorAll('button').forEach((btn, i) => {
+                if (i !== index) {
                     btn.classList.remove('active');
                 }
             });
             
-            // Start new animation
-            const clip = animations[index];
-            const action = mixer.clipAction(clip);
-            action.reset();
-            action.fadeIn(0.5);
-            action.play();
-            currentAction = action;
-            currentAnimationIndex = index;
-            
-            // Update animation info
-            updateAnimationInfo();
+            // Start playing
+            setPlaying(true);
         }
+        
+        // Timeline interaction
+        timeline.addEventListener('mousedown', (e) => {
+            const rect = timeline.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const percentage = x / rect.width;
+            scrubToPercentage(percentage);
+            
+            // Add mousemove event for dragging
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        });
+        
+        function onMouseMove(e) {
+            const rect = timeline.getBoundingClientRect();
+            const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+            const percentage = x / rect.width;
+            scrubToPercentage(percentage);
+        }
+        
+        function onMouseUp() {
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        }
+        
+        function scrubToPercentage(percentage) {
+            if (!currentAction) return;
+            
+            const time = percentage * totalDuration;
+            currentTime = time;
+            
+            // Update mixer time
+            mixer.setTime(time);
+            
+            // Update UI
+            updateTimeDisplay();
+        }
+        
+        // Playback controls
+        playPauseBtn.addEventListener('click', () => {
+            setPlaying(!isPlaying);
+        });
+        
+        loopToggleBtn.addEventListener('click', () => {
+            isLooping = !isLooping;
+            if (currentAction) {
+                currentAction.loop = isLooping ? THREE.LoopRepeat : THREE.LoopOnce;
+                currentAction.clampWhenFinished = !isLooping;
+            }
+            loopToggleBtn.textContent = isLooping ? '🔁 Loop ON' : '↩️ Loop OFF';
+        });
+        
+        playbackSpeedSlider.addEventListener('input', () => {
+            playbackSpeed = parseFloat(playbackSpeedSlider.value);
+            speedValueSpan.textContent = playbackSpeed.toFixed(1);
+            if (mixer) {
+                mixer.timeScale = isPlaying ? playbackSpeed : 0;
+            }
+        });
+        
+        function setPlaying(play) {
+            isPlaying = play;
+            if (mixer) {
+                mixer.timeScale = isPlaying ? playbackSpeed : 0;
+            }
+            playPauseBtn.textContent = isPlaying ? '⏸️ Pause' : '▶️ Play';
+            playPauseBtn.classList.toggle('active', isPlaying);
+        }
+        
+        // Set start/end points
+        document.getElementById('set-start').addEventListener('click', () => {
+            startTimeInput.value = currentTime.toFixed(2);
+            updateSegmentPreview();
+        });
+        
+        document.getElementById('set-end').addEventListener('click', () => {
+            endTimeInput.value = currentTime.toFixed(2);
+            updateSegmentPreview();
+        });
+        
+        // Update time display
+        function updateTimeDisplay() {
+            currentTimeSpan.textContent = currentTime.toFixed(2);
+            
+            // Update scrubber position
+            const percentage = currentTime / totalDuration;
+            timelineScrubber.style.left = `${percentage * 100}%`;
+        }
+        
+        // Create a segment preview on the timeline
+        function updateSegmentPreview() {
+            // Clear existing preview
+            const existingPreview = document.querySelector('.segment-preview');
+            if (existingPreview) existingPreview.remove();
+            
+            const startTime = parseFloat(startTimeInput.value);
+            const endTime = parseFloat(endTimeInput.value);
+            
+            if (startTime >= endTime || endTime > totalDuration) return;
+            
+            const startPercent = startTime / totalDuration * 100;
+            const endPercent = endTime / totalDuration * 100;
+            const width = endPercent - startPercent;
+            
+            const segment = document.createElement('div');
+            segment.classList.add('timeline-segment', 'segment-preview');
+            segment.style.left = `${startPercent}%`;
+            segment.style.width = `${width}%`;
+            segment.title = `Preview: ${clipNameInput.value} (${startTime.toFixed(2)}s - ${endTime.toFixed(2)}s)`;
+            
+            timelineSegments.appendChild(segment);
+        }
+        
+        // Initial segment preview
+        updateSegmentPreview();
+        
+        // Preview segment
+        document.getElementById('preview-segment').addEventListener('click', () => {
+            const startTime = parseFloat(startTimeInput.value);
+            const endTime = parseFloat(endTimeInput.value);
+            
+            if (startTime >= endTime || !currentAction) return;
+            
+            // Set time to start
+            currentTime = startTime;
+            mixer.setTime(startTime);
+            
+            // Start playing
+            setPlaying(true);
+            
+            // Create function to stop at end time
+            const checkEndTime = () => {
+                if (currentTime >= endTime) {
+                    setPlaying(false);
+                    document.removeEventListener('animationTimeUpdate', checkEndTime);
+                }
+            };
+            
+            document.addEventListener('animationTimeUpdate', checkEndTime);
+        });
+        
+        // Save segment
+        document.getElementById('save-segment').addEventListener('click', () => {
+            const name = clipNameInput.value || 'Clip';
+            const startTime = parseFloat(startTimeInput.value);
+            const endTime = parseFloat(endTimeInput.value);
+            
+            if (startTime >= endTime || !animations[0]) return;
+            
+            // Create a new AnimationClip
+            const originalClip = animations[0];
+            const newClip = createSubClip(originalClip, name, startTime, endTime);
+            
+            // Add to custom clips
+            customClips.push(newClip);
+            
+            // Add to list
+            addClipToUI(newClip, customClips.length - 1);
+            
+            // Update segment display
+            addSegmentToTimeline(newClip, startTime, endTime);
+            
+            // Generate a new name for next clip
+            clipNameInput.value = `Clip ${customClips.length + 1}`;
+        });
+        
+        // Create a sub-clip
+        function createSubClip(sourceClip, name, startTime, endTime) {
+            // Clone tracks and adjust times
+            const tracks = [];
+            
+            sourceClip.tracks.forEach(track => {
+                // Clone track times and values
+                const times = [];
+                const values = [];
+                
+                // Filter times within our range and adjust them
+                for (let i = 0; i < track.times.length; i++) {
+                    const time = track.times[i];
+                    
+                    if (time >= startTime && time <= endTime) {
+                        times.push(time - startTime);
+                        
+                        // Copy corresponding values
+                        const valuesPerTime = track.values.length / track.times.length;
+                        for (let j = 0; j < valuesPerTime; j++) {
+                            values.push(track.values[i * valuesPerTime + j]);
+                        }
+                    }
+                }
+                
+                // Create new track
+                if (times.length > 0) {
+                    const newTrack = new THREE.KeyframeTrack(
+                        track.name,
+                        times,
+                        values,
+                        track.interpolation
+                    );
+                    tracks.push(newTrack);
+                }
+            });
+            
+            // Create new clip
+            return new THREE.AnimationClip(name, endTime - startTime, tracks);
+        }
+        
+        // Add clip to UI
+        function addClipToUI(clip, index) {
+            // Add to list
+            const item = document.createElement('div');
+            item.classList.add('segment-item');
+            item.innerHTML = `
+                <span>${clip.name} (${clip.duration.toFixed(2)}s)</span>
+                <button class="play-clip" data-index="${index}">Play</button>
+            `;
+            segmentsList.appendChild(item);
+            
+            // Add play button
+            item.querySelector('.play-clip').addEventListener('click', () => {
+                playCustomClip(index);
+            });
+            
+            // Add to preview panel
+            const button = document.createElement('button');
+            button.textContent = clip.name;
+            button.dataset.index = index;
+            button.addEventListener('click', () => playCustomClip(index));
+            customClipsContainer.appendChild(button);
+        }
+        
+        // Add segment visualization to timeline
+        function addSegmentToTimeline(clip, startTime, endTime) {
+            const startPercent = startTime / totalDuration * 100;
+            const endPercent = endTime / totalDuration * 100;
+            const width = endPercent - startPercent;
+            
+            const segment = document.createElement('div');
+            segment.classList.add('timeline-segment');
+            segment.style.left = `${startPercent}%`;
+            segment.style.width = `${width}%`;
+            segment.title = `${clip.name} (${startTime.toFixed(2)}s - ${endTime.toFixed(2)}s)`;
+            segment.style.backgroundColor = getRandomColor(0.3);
+            segment.style.borderLeftColor = getRandomColor(0.8);
+            segment.style.borderRightColor = getRandomColor(0.8);
+            
+            timelineSegments.appendChild(segment);
+        }
+        
+        // Get random color
+        function getRandomColor(alpha) {
+            const r = Math.floor(Math.random() * 255);
+            const g = Math.floor(Math.random() * 255);
+            const b = Math.floor(Math.random() * 255);
+            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        }
+        
+        // Play custom clip
+        function playCustomClip(index) {
+            if (!mixer || index >= customClips.length) return;
+            
+            // Stop current animation
+            if (currentAction) {
+                currentAction.stop();
+            }
+            
+            // Start new animation
+            const clip = customClips[index];
+            currentAction = mixer.clipAction(clip);
+            currentAction.clampWhenFinished = !isLooping;
+            currentAction.loop = isLooping ? THREE.LoopRepeat : THREE.LoopOnce;
+            currentAction.reset();
+            currentAction.play();
+            
+            // Update UI
+            totalDuration = clip.duration;
+            totalTimeSpan.textContent = totalDuration.toFixed(2);
+            
+            // Highlight active button
+            customClipsContainer.querySelectorAll('button').forEach((btn, i) => {
+                btn.classList.toggle('active', i === index);
+            });
+            originalAnimations.querySelectorAll('button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            // Start playing
+            setPlaying(true);
+        }
+        
+        // Export clips
+        document.getElementById('export-clips').addEventListener('click', () => {
+            if (customClips.length === 0) {
+                alert("No clips to export");
+                return;
+            }
+            
+            // Create export data
+            const exportData = customClips.map((clip, index) => {
+                return {
+                    name: clip.name,
+                    duration: clip.duration,
+                    trackCount: clip.tracks.length
+                };
+            });
+            
+            // Generate JSON
+            const json = JSON.stringify(exportData, null, 2);
+            
+            // Display to user
+            alert("Export Data (see console for full details):\n\n" + 
+                  customClips.map(c => `${c.name}: ${c.duration.toFixed(2)}s`).join("\n"));
+            console.log("Exported Animation Clips:", customClips);
+            console.log("Clip Data:", json);
+        });
         
         // Animation loop
         const clock = new THREE.Clock();
@@ -283,9 +783,30 @@
             // Update controls
             controls.update();
             
-            // Update animations
-            if (mixer) {
-                mixer.update(clock.getDelta());
+            // Get delta time
+            const delta = clock.getDelta();
+            
+            // Update animations if playing
+            if (mixer && isPlaying) {
+                mixer.update(delta);
+                currentTime += delta * playbackSpeed;
+                
+                // Loop if needed
+                if (currentTime > totalDuration) {
+                    if (isLooping) {
+                        currentTime = currentTime % totalDuration;
+                        // No need to manually reset the animation as THREE.js handles looping
+                    } else {
+                        currentTime = totalDuration;
+                        setPlaying(false);
+                    }
+                }
+                
+                // Update time display
+                updateTimeDisplay();
+                
+                // Dispatch custom event for time update
+                document.dispatchEvent(new CustomEvent('animationTimeUpdate'));
             }
             
             // Render scene
@@ -296,10 +817,15 @@
         
         // Handle window resize
         window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.aspect = window.innerWidth / (window.innerHeight * 0.7);
             camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setSize(window.innerWidth, window.innerHeight * 0.7);
         });
+        
+        // Initialize UI
+        startTimeInput.addEventListener('change', updateSegmentPreview);
+        endTimeInput.addEventListener('change', updateSegmentPreview);
+        loopToggleBtn.textContent = '🔁 Loop ON';
     </script>
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 </body>
