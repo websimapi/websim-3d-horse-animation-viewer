@@ -174,7 +174,7 @@
 <body>
     <div id="scene-container"></div>
     <div id="loading">Loading horse model...</div>
-    <div id="info">Use mouse to rotate the view, scroll to zoom</div>
+    <div id="info">Use mouse to rotate the view, scroll to zoom<br>Press M to toggle movement mode<br>WASD/Arrow keys to move (in movement mode)</div>
     
     <div id="editor-panel">
         <div id="timeline-container">
@@ -293,16 +293,46 @@
         directionalLight.shadow.mapSize.height = 2048;
         scene.add(directionalLight);
         
+        // Collision objects to store obstacles in the scene
+        const collisionObjects = [];
+        
+        // Helper for collision visualization (optional)
+        const collisionHelper = new THREE.Group();
+        scene.add(collisionHelper);
+        
         let environment;
         const environmentLoader = new GLTFLoader();
         environmentLoader.load('/low-poly_nature_scene.glb', (gltf) => {
             environment = gltf.scene;
             
-            // Set up environment
+            // Set up environment and collisions
             environment.traverse((child) => {
                 if (child.isMesh) {
                     child.castShadow = true;
                     child.receiveShadow = true;
+                    
+                    // Create collision shapes for environment objects (trees, rocks, etc.)
+                    // We'll identify objects that should have collision by their names
+                    if (child.name.includes('tree') || 
+                        child.name.includes('rock') || 
+                        child.name.includes('terrain') || 
+                        child.name.includes('ground') ||
+                        child.geometry) {
+                        
+                        // Create bounding box for collision
+                        const bbox = new THREE.Box3().setFromObject(child);
+                        
+                        // Store collision object
+                        collisionObjects.push({
+                            mesh: child,
+                            bbox: bbox
+                        });
+                        
+                        // Optionally visualize collision boxes (for debugging)
+                        const helper = new THREE.Box3Helper(bbox, 0xff0000);
+                        helper.visible = false; // Set to true to see collision boxes
+                        collisionHelper.add(helper);
+                    }
                 }
             });
             
@@ -312,11 +342,22 @@
             
             // Add to scene
             scene.add(environment);
+            
+            // Make sure to update collision objects when environment is moved or scaled
+            updateCollisionBoundingBoxes();
         });
+        
+        // Function to update collision bounding boxes
+        function updateCollisionBoundingBoxes() {
+            collisionObjects.forEach(obj => {
+                obj.bbox.setFromObject(obj.mesh);
+            });
+        }
         
         // Variables for model and animations
         let mixer;
         let horse;
+        let horseCollider;
         let animations = [];
         let currentAction = null;
         let isPlaying = false;
@@ -325,6 +366,19 @@
         let currentTime = 0;
         let totalDuration = 0;
         let customClips = [];
+        
+        // Movement controls for the horse (when not in animation preview mode)
+        const movementKeys = {
+            forward: false,
+            backward: false,
+            left: false,
+            right: false
+        };
+        
+        let movementEnabled = false;
+        let movementSpeed = 0.05;
+        let rotationSpeed = 0.03;
+        let horseDirection = new THREE.Vector3(0, 0, 1);
         
         // UI Elements
         const playPauseBtn = document.getElementById('play-pause');
@@ -358,11 +412,19 @@
                 }
             });
             
-            // Scale down the horse model - it was too large
-            horse.scale.set(0.5, 0.5, 0.5);
+            // Scale down the horse model more - it was too large
+            horse.scale.set(0.35, 0.35, 0.35);
             
             // Position the horse more to the south
-            horse.position.set(0, 0, 2);
+            horse.position.set(0, 0, 4);
+            
+            // Create a bounding box for the horse
+            horseCollider = new THREE.Box3().setFromObject(horse);
+            
+            // Create a helper for the horse bounding box
+            const horseColliderHelper = new THREE.Box3Helper(horseCollider, 0x00ff00);
+            horseColliderHelper.visible = false; // Set to true to see the horse's collision box
+            collisionHelper.add(horseColliderHelper);
             
             // Add to scene
             scene.add(horse);
@@ -399,6 +461,9 @@
             
             // Hide loading message
             document.getElementById('loading').style.display = 'none';
+            
+            // Add movement controls information to the info box
+            document.getElementById('info').innerHTML += '<br>Press M to toggle movement mode<br>WASD/Arrow keys to move (in movement mode)';
         }, 
         // Progress callback
         (xhr) => {
@@ -411,6 +476,61 @@
             console.error('Error loading model:', error);
             document.getElementById('loading').textContent = 
                 'Error loading horse model. Please try again.';
+        });
+        
+        // Detect collisions between horse and environment
+        function detectCollisions(nextPosition) {
+            if (!horseCollider || !horse) return false;
+            
+            // Create a temporary box3 at the proposed next position
+            const tempBox = horseCollider.clone();
+            
+            // Translate the temp box to the proposed position
+            const currentCenter = new THREE.Vector3();
+            horseCollider.getCenter(currentCenter);
+            
+            const newCenter = nextPosition.clone();
+            const offset = new THREE.Vector3().subVectors(newCenter, currentCenter);
+            tempBox.translate(offset);
+            
+            // Check for collisions with all obstacles
+            for (const object of collisionObjects) {
+                if (tempBox.intersectsBox(object.bbox)) {
+                    return true; // Collision detected
+                }
+            }
+            
+            return false; // No collision
+        }
+        
+        // Handle movement controls
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'KeyM') {
+                // Toggle movement mode
+                movementEnabled = !movementEnabled;
+                
+                // Update UI to reflect mode
+                if (movementEnabled) {
+                    setPlaying(false); // Pause any playing animation
+                    alert('Movement mode enabled. Use WASD or arrow keys to move.');
+                } else {
+                    alert('Animation preview mode enabled.');
+                }
+            }
+            
+            // Set movement flags based on key presses
+            if (e.code === 'KeyW' || e.code === 'ArrowUp') movementKeys.forward = true;
+            if (e.code === 'KeyS' || e.code === 'ArrowDown') movementKeys.backward = true;
+            if (e.code === 'KeyA' || e.code === 'ArrowLeft') movementKeys.left = true;
+            if (e.code === 'KeyD' || e.code === 'ArrowRight') movementKeys.right = true;
+        });
+        
+        document.addEventListener('keyup', (e) => {
+            // Clear movement flags when keys are released
+            if (e.code === 'KeyW' || e.code === 'ArrowUp') movementKeys.forward = false;
+            if (e.code === 'KeyS' || e.code === 'ArrowDown') movementKeys.backward = false;
+            if (e.code === 'KeyA' || e.code === 'ArrowLeft') movementKeys.left = false;
+            if (e.code === 'KeyD' || e.code === 'ArrowRight') movementKeys.right = false;
         });
         
         // Display Model Information
@@ -947,6 +1067,61 @@
             console.log("Clip Data:", json);
         });
         
+        // Handle horse movement
+        function updateHorsePosition() {
+            if (!movementEnabled || !horse) return;
+            
+            let moved = false;
+            const moveDistance = movementSpeed;
+            
+            // Calculate movement based on keys pressed
+            if (movementKeys.forward) {
+                // Calculate next position
+                const forwardMove = horseDirection.clone().multiplyScalar(moveDistance);
+                const nextPosition = horse.position.clone().add(forwardMove);
+                
+                // Check for collisions before moving
+                if (!detectCollisions(nextPosition)) {
+                    horse.position.add(forwardMove);
+                    moved = true;
+                }
+            }
+            
+            if (movementKeys.backward) {
+                // Calculate next position
+                const backwardMove = horseDirection.clone().multiplyScalar(-moveDistance);
+                const nextPosition = horse.position.clone().add(backwardMove);
+                
+                // Check for collisions before moving
+                if (!detectCollisions(nextPosition)) {
+                    horse.position.add(backwardMove);
+                    moved = true;
+                }
+            }
+            
+            // Rotation
+            if (movementKeys.left) {
+                // Rotate horse left
+                horse.rotation.y += rotationSpeed;
+                // Update direction vector
+                horseDirection.set(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), horse.rotation.y);
+                moved = true;
+            }
+            
+            if (movementKeys.right) {
+                // Rotate horse right
+                horse.rotation.y -= rotationSpeed;
+                // Update direction vector
+                horseDirection.set(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), horse.rotation.y);
+                moved = true;
+            }
+            
+            // Update horse collider
+            if (moved && horseCollider) {
+                horseCollider.setFromObject(horse);
+            }
+        }
+        
         // Animation loop
         const clock = new THREE.Clock();
         
@@ -981,6 +1156,9 @@
                 // Dispatch custom event for time update
                 document.dispatchEvent(new CustomEvent('animationTimeUpdate'));
             }
+            
+            // Handle horse movement if in movement mode
+            updateHorsePosition();
             
             // Render scene
             renderer.render(scene, camera);
