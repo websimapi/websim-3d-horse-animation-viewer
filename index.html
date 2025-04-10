@@ -236,12 +236,12 @@
                 <button id="clear-still-points">Clear Markers</button>
                 <div id="analysis-options">
                     <label for="still-threshold">Sensitivity:</label>
-                    <input type="range" id="still-threshold" min="0.00001" max="0.005" step="0.00001" value="0.0001">
-                    <span id="threshold-value">0.0001</span>
+                    <input type="range" id="still-threshold" min="0.0001" max="0.01" step="0.0001" value="0.001">
+                    <span id="threshold-value">0.001</span>
                     
                     <label for="min-still-duration">Min Duration:</label>
-                    <input type="range" id="min-still-duration" min="0.01" max="1" step="0.01" value="0.1">
-                    <span id="duration-value">0.1s</span>
+                    <input type="range" id="min-still-duration" min="0.05" max="1" step="0.05" value="0.2">
+                    <span id="duration-value">0.2s</span>
                 </div>
             </div>
             <div id="timeline">
@@ -913,9 +913,9 @@
             segment.style.left = `${startPercent}%`;
             segment.style.width = `${width}%`;
             segment.title = `${clip.name} (${startTime.toFixed(2)}s - ${endTime.toFixed(2)}s)`;
-            segment.style.backgroundColor = `rgba(${Math.floor(Math.random() * 255)}, ${Math.floor(Math.random() * 255)}, ${Math.floor(Math.random() * 255)}, 0.3)`;
-            segment.style.borderLeftColor = `rgba(${Math.floor(Math.random() * 255)}, ${Math.floor(Math.random() * 255)}, ${Math.floor(Math.random() * 255)}, 0.8)`;
-            segment.style.borderRightColor = `rgba(${Math.floor(Math.random() * 255)}, ${Math.floor(Math.random() * 255)}, ${Math.floor(Math.random() * 255)}, 0.8)`;
+            segment.style.backgroundColor = getRandomColor(0.3);
+            segment.style.borderLeftColor = getRandomColor(0.8);
+            segment.style.borderRightColor = getRandomColor(0.8);
             
             timelineSegments.appendChild(segment);
         }
@@ -1000,17 +1000,15 @@
                 const framesCount = Math.ceil(duration * frameRate);
                 
                 const points = [];
-                let movementData = [];
                 
                 let prevPositions = null;
                 let isStill = false;
                 let stillStartTime = 0;
+                let movementValues = []; 
+                let movingAverageWindow = 3; 
                 
                 // Save current animation state
                 const currentMixerTime = mixer.time;
-                
-                // Get important bones - we'll weight these more heavily
-                const importantBoneNames = ['spine', 'neck', 'head', 'hip', 'thigh', 'shin', 'foot', 'shoulder', 'arm', 'forearm'];
                 
                 function captureBoneState() {
                     const state = [];
@@ -1019,9 +1017,7 @@
                             state.push({
                                 name: obj.name,
                                 position: obj.position.clone(),
-                                quaternion: obj.quaternion.clone(),
-                                isImportant: importantBoneNames.some(boneName => 
-                                    obj.name.toLowerCase().includes(boneName))
+                                quaternion: obj.quaternion.clone()
                             });
                         }
                     });
@@ -1032,55 +1028,43 @@
                     if (!state1 || !state2) return Infinity;
                     
                     let totalMovement = 0;
-                    let totalWeight = 0;
+                    let boneCount = 0;
                     
                     for (let i = 0; i < state1.length; i++) {
                         const bone1 = state1[i];
                         const bone2 = state2.find(b => b.name === bone1.name);
                         
                         if (bone2) {
-                            // Assign importance weight (higher for important bones)
-                            const weight = bone1.isImportant ? 3.0 : 1.0;
-                            totalWeight += weight;
+                            boneCount++;
                             
                             // Position difference
                             const posDiff = bone1.position.distanceTo(bone2.position);
+                            totalMovement += posDiff;
                             
                             // Rotation difference - use quaternion dot product
-                            const quatDot = Math.abs(bone1.quaternion.dot(bone2.quaternion));
-                            // Convert to angle (in radians) for better scaling
-                            const quatDiff = Math.acos(Math.min(1, Math.max(-1, quatDot))) * 2;
-                            
-                            // Weight rotation changes more for limbs
-                            const rotationWeight = bone1.isImportant ? 5.0 : 2.0;
-                            
-                            // Add to total movement (weighted)
-                            totalMovement += (posDiff + (quatDiff * rotationWeight)) * weight;
+                            const quatDiff = 1 - Math.abs(bone1.quaternion.dot(bone2.quaternion));
+                            totalMovement += quatDiff * 2; 
                         }
                     }
                     
-                    // Normalize by total weight
-                    return totalWeight > 0 ? totalMovement / totalWeight : 0;
+                    // Normalize by bone count to make threshold more consistent
+                    return boneCount > 0 ? totalMovement / boneCount : Infinity;
                 }
                 
-                // Moving average to smooth out noise
-                function smoothMovement(values, windowSize = 3) {
-                    const result = [];
-                    for (let i = 0; i < values.length; i++) {
-                        let sum = 0;
-                        let count = 0;
-                        for (let j = Math.max(0, i - Math.floor(windowSize/2)); 
-                             j <= Math.min(values.length - 1, i + Math.floor(windowSize/2)); j++) {
-                            sum += values[j];
-                            count++;
-                        }
-                        result.push(sum / count);
+                // Function to get smoothed movement using moving average
+                function getSmoothedMovement(newMovement) {
+                    movementValues.push(newMovement);
+                    if (movementValues.length > movingAverageWindow) {
+                        movementValues.shift(); 
                     }
-                    return result;
+                    
+                    // Calculate average movement
+                    return movementValues.reduce((sum, val) => sum + val, 0) / movementValues.length;
                 }
                 
                 let frameIndex = 0;
-                const movementValues = [];
+                let stillPointsCount = 0;
+                const movementLog = [];
                 
                 function processFrame() {
                     if (frameIndex < framesCount) {
@@ -1094,59 +1078,54 @@
                         
                         if (prevPositions) {
                             // Calculate movement since last frame
-                            const movement = calculateMovement(prevPositions, currentPositions);
-                            movementValues.push(movement);
-                        }
-                        
-                        prevPositions = currentPositions;
-                        frameIndex++;
-                        
-                        // Process frames in chunks to keep UI responsive
-                        if (frameIndex % 10 === 0) {
-                            const progress = Math.round((frameIndex / framesCount) * 100);
-                            stillPointsContainer.innerHTML = `Analyzing animation... ${progress}%`;
-                            setTimeout(processFrame, 0);
-                        } else {
-                            processFrame();
-                        }
-                    } else {
-                        // Smooth the movement data to reduce noise
-                        const smoothedMovement = smoothMovement(movementValues, 5);
-                        
-                        // Detect still points using the smoothed data
-                        isStill = false;
-                        stillStartTime = 0;
-                        
-                        for (let i = 0; i < smoothedMovement.length; i++) {
-                            const time = i / frameRate;
-                            const movement = smoothedMovement[i];
+                            const rawMovement = calculateMovement(prevPositions, currentPositions);
+                            const movement = getSmoothedMovement(rawMovement);
                             
-                            // Save data for visualization
-                            movementData.push({time, movement});
+                            // Log for debugging
+                            movementLog.push({ time: frameTime, movement: movement });
                             
+                            // Check if this is a still point
                             if (movement < threshold) {
                                 if (!isStill) {
                                     // Start of still period
-                                    stillStartTime = time;
+                                    stillStartTime = frameTime;
                                     isStill = true;
                                 }
                             } else {
                                 if (isStill) {
                                     // End of still period
-                                    const stillDuration = time - stillStartTime;
+                                    const stillDuration = frameTime - stillStartTime;
                                     if (stillDuration >= minDuration) {
                                         points.push({
                                             start: stillStartTime,
-                                            end: time,
+                                            end: frameTime,
                                             duration: stillDuration,
                                             movement: movement
                                         });
+                                        stillPointsCount++;
                                     }
                                     isStill = false;
                                 }
                             }
                         }
                         
+                        prevPositions = currentPositions;
+                        frameIndex++;
+                        
+                        // Update loading message every 30 frames
+                        if (frameIndex % 30 === 0) {
+                            const progress = Math.round((frameIndex / framesCount) * 100);
+                            const loadingMessage = stillPointsContainer.querySelector(':first-child');
+                            if (loadingMessage) {
+                                loadingMessage.textContent = `Analyzing animation... ${progress}% (Found ${stillPointsCount} still points)`;
+                            }
+                            
+                            // Process frames in chunks to keep UI responsive
+                            setTimeout(processFrame, 0);
+                        } else {
+                            processFrame();
+                        }
+                    } else {
                         // Check if we ended in a still state
                         if (isStill) {
                             const stillDuration = duration - stillStartTime;
@@ -1160,59 +1139,14 @@
                             }
                         }
                         
-                        // Additionally detect sudden changes in movement (transitions)
-                        detectMovementTransitions(smoothedMovement, frameRate, points);
-                        
                         // Restore original mixer time
                         mixer.setTime(currentMixerTime);
                         
-                        // Sort points by start time
-                        points.sort((a, b) => a.start - b.start);
+                        // Add movement log to console for debugging
+                        console.log("Movement log:", movementLog);
                         
-                        // Resolve with results and movement data for visualization
-                        resolve({points, movementData});
-                    }
-                }
-                
-                // Additional method to detect significant changes in movement (transitions)
-                function detectMovementTransitions(smoothedMovement, frameRate, points) {
-                    // Calculate the derivative (rate of change) of movement
-                    const derivatives = [];
-                    for (let i = 1; i < smoothedMovement.length; i++) {
-                        derivatives.push(Math.abs(smoothedMovement[i] - smoothedMovement[i-1]));
-                    }
-                    
-                    // Smooth the derivatives
-                    const smoothedDerivatives = smoothMovement(derivatives, 5);
-                    
-                    // Find peaks in the derivative (sudden changes)
-                    const mean = smoothedDerivatives.reduce((sum, val) => sum + val, 0) / smoothedDerivatives.length;
-                    const stdDev = Math.sqrt(smoothedDerivatives.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / smoothedDerivatives.length);
-                    
-                    // Threshold for significance: mean + 2*stdDev
-                    const transitionThreshold = mean + (2 * stdDev);
-                    
-                    // Find significant transitions
-                    for (let i = 0; i < smoothedDerivatives.length; i++) {
-                        if (smoothedDerivatives[i] > transitionThreshold) {
-                            const time = (i + 1) / frameRate; // +1 because derivatives start from index 1
-                            
-                            // Check if this transition is already part of a still point
-                            const isInStillPoint = points.some(point => 
-                                time >= point.start - 0.1 && time <= point.end + 0.1
-                            );
-                            
-                            if (!isInStillPoint) {
-                                // Add a small still point at this transition
-                                points.push({
-                                    start: time - 0.05,
-                                    end: time + 0.05,
-                                    duration: 0.1,
-                                    movement: smoothedMovement[i],
-                                    isTransition: true
-                                });
-                            }
-                        }
+                        // Resolve with results
+                        resolve(points);
                     }
                 }
                 
@@ -1220,211 +1154,7 @@
                 processFrame();
             });
         }
-        
-        // Visualize still points on the timeline and list
-        function visualizeStillPoints(result) {
-            const points = result.points;
-            const movementData = result.movementData;
-            
-            // Clear previous still points
-            stillPointsContainer.innerHTML = '';
-            stillPointsLayer.innerHTML = '';
-            
-            if (points.length === 0) {
-                stillPointsContainer.innerHTML = '<div class="still-point-item">No still points detected. Try adjusting threshold.</div>';
-                return;
-            }
-            
-            // Create a simple movement graph
-            const graphContainer = document.createElement('div');
-            graphContainer.style.height = '80px';
-            graphContainer.style.position = 'relative';
-            graphContainer.style.marginBottom = '15px';
-            graphContainer.style.backgroundColor = '#222';
-            graphContainer.style.border = '1px solid #444';
-            
-            // Find the max movement for scaling
-            const maxMovement = Math.max(...movementData.map(d => d.movement));
-            
-            // Create the graph line
-            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-            svg.setAttribute('width', '100%');
-            svg.setAttribute('height', '100%');
-            svg.style.position = 'absolute';
-            
-            let pathData = '';
-            movementData.forEach((data, i) => {
-                const x = (data.time / totalDuration) * 100 + '%';
-                const y = 80 - ((data.movement / maxMovement) * 70) + 'px'; // Leave some margin
-                
-                if (i === 0) {
-                    pathData = `M ${x} ${y}`;
-                } else {
-                    pathData += ` L ${x} ${y}`;
-                }
-            });
-            
-            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            path.setAttribute('d', pathData);
-            path.setAttribute('stroke', '#4CAF50');
-            path.setAttribute('stroke-width', '2');
-            path.setAttribute('fill', 'none');
-            
-            svg.appendChild(path);
-            graphContainer.appendChild(svg);
-            
-            // Add threshold line
-            const thresholdLine = document.createElement('div');
-            thresholdLine.style.position = 'absolute';
-            thresholdLine.style.width = '100%';
-            thresholdLine.style.borderTop = '1px dashed rgba(255, 255, 0, 0.5)';
-            thresholdLine.style.top = (80 - ((parseFloat(stillThresholdSlider.value) / maxMovement) * 70)) + 'px';
-            graphContainer.appendChild(thresholdLine);
-            
-            stillPointsContainer.appendChild(graphContainer);
-            
-            // Add still points to list
-            points.forEach((point, index) => {
-                const item = document.createElement('div');
-                item.classList.add('still-point-item');
-                
-                const label = point.isTransition ? 'Transition' : 'Still Point';
-                const color = point.isTransition ? '#ff9800' : '#4CAF50';
-                
-                item.innerHTML = `
-                    <strong style="color: ${color}">${label} ${index + 1}</strong>: 
-                    ${point.start.toFixed(2)}s - ${point.end.toFixed(2)}s 
-                    (${point.duration.toFixed(2)}s)
-                `;
-                item.title = "Click to jump to this " + (point.isTransition ? "transition" : "still point");
-                item.style.borderLeft = `4px solid ${color}`;
-                item.addEventListener('click', () => {
-                    currentTime = point.start;
-                    mixer.setTime(point.start);
-                    updateTimeDisplay();
-                });
-                stillPointsContainer.appendChild(item);
-                
-                // Add markers to timeline
-                const startPercent = (point.start / totalDuration) * 100;
-                const endPercent = (point.end / totalDuration) * 100;
-                const width = endPercent - startPercent;
-                
-                // Add segment
-                const segment = document.createElement('div');
-                segment.classList.add(point.isTransition ? 'timeline-segment' : 'still-segment');
-                segment.style.left = `${startPercent}%`;
-                segment.style.width = `${width}%`;
-                segment.style.backgroundColor = point.isTransition ? 
-                    'rgba(255, 152, 0, 0.2)' : 'rgba(255, 215, 0, 0.2)';
-                segment.style.borderLeft = point.isTransition ? 
-                    '2px solid rgba(255, 152, 0, 0.8)' : '2px solid rgba(255, 215, 0, 0.8)';
-                segment.style.borderRight = point.isTransition ? 
-                    '2px solid rgba(255, 152, 0, 0.8)' : '2px solid rgba(255, 215, 0, 0.8)';
-                segment.title = `${point.isTransition ? 'Transition' : 'Still'}: ${point.start.toFixed(2)}s - ${point.end.toFixed(2)}s`;
-                stillPointsLayer.appendChild(segment);
-                
-                // Add start marker
-                const startMarker = document.createElement('div');
-                startMarker.classList.add('still-marker');
-                startMarker.style.left = `${startPercent}%`;
-                startMarker.style.backgroundColor = point.isTransition ? '#ff9800' : '#ffd700';
-                startMarker.title = `${point.isTransition ? 'Transition' : 'Still'} starts: ${point.start.toFixed(2)}s`;
-                stillPointsLayer.appendChild(startMarker);
-                
-                // Add end marker
-                const endMarker = document.createElement('div');
-                endMarker.classList.add('still-marker');
-                endMarker.style.left = `${endPercent}%`;
-                endMarker.style.backgroundColor = point.isTransition ? '#ff9800' : '#ffd700';
-                endMarker.title = `${point.isTransition ? 'Transition' : 'Still'} ends: ${point.end.toFixed(2)}s`;
-                stillPointsLayer.appendChild(endMarker);
-            });
-            
-            // Add summary
-            const summary = document.createElement('div');
-            summary.style.marginTop = '10px';
-            summary.innerHTML = `
-                <strong>Found ${points.filter(p => !p.isTransition).length} still point(s) and 
-                ${points.filter(p => p.isTransition).length} transition(s)</strong>
-                <p>Total still time: ${points.filter(p => !p.isTransition).reduce((sum, p) => sum + p.duration, 0).toFixed(2)}s</p>
-                <p>Click on any marker to jump to that position</p>
-            `;
-            stillPointsContainer.appendChild(summary);
-            
-            // Suggest clip boundaries based on still points
-            if (points.length > 0) {
-                const suggestions = document.createElement('div');
-                suggestions.style.marginTop = '15px';
-                suggestions.style.padding = '10px';
-                suggestions.style.backgroundColor = '#333';
-                suggestions.style.borderRadius = '4px';
-                suggestions.innerHTML = '<h4>Suggested Clip Boundaries:</h4>';
-                
-                const clipSuggestions = [];
-                
-                // Group close points together
-                let currentGroup = [points[0]];
-                for (let i = 1; i < points.length; i++) {
-                    const gap = points[i].start - points[i-1].end;
-                    if (gap < 0.5) { // If less than 0.5s gap, group together
-                        currentGroup.push(points[i]);
-                    } else {
-                        clipSuggestions.push({
-                            start: currentGroup[0].start,
-                            end: currentGroup[currentGroup.length - 1].end
-                        });
-                        currentGroup = [points[i]];
-                    }
-                }
-                // Add the last group
-                if (currentGroup.length > 0) {
-                    clipSuggestions.push({
-                        start: currentGroup[0].start,
-                        end: currentGroup[currentGroup.length - 1].end
-                    });
-                }
-                
-                // Create clip suggestions - ignore very short ones
-                let suggestionsHTML = '';
-                clipSuggestions.forEach((clip, i) => {
-                    if (clip.end - clip.start >= 0.3) { // Only show suggestions of reasonable length
-                        suggestionsHTML += `
-                            <div style="margin: 5px 0;">
-                                <button class="use-suggestion" data-start="${clip.start}" data-end="${clip.end}">
-                                    Use ${clip.start.toFixed(2)}s - ${clip.end.toFixed(2)}s
-                                </button>
-                            </div>
-                        `;
-                    }
-                });
-                
-                if (suggestionsHTML) {
-                    suggestions.innerHTML += suggestionsHTML;
-                    stillPointsContainer.appendChild(suggestions);
-                    
-                    // Add event listeners to suggestion buttons
-                    stillPointsContainer.querySelectorAll('.use-suggestion').forEach(btn => {
-                        btn.addEventListener('click', () => {
-                            const start = parseFloat(btn.dataset.start);
-                            const end = parseFloat(btn.dataset.end);
-                            startTimeInput.value = start.toFixed(2);
-                            endTimeInput.value = end.toFixed(2);
-                            updateSegmentPreview();
-                            
-                            // Jump to start position
-                            currentTime = start;
-                            mixer.setTime(start);
-                            updateTimeDisplay();
-                        });
-                    });
-                } else {
-                    suggestions.innerHTML += '<p>No significant clip boundaries detected.</p>';
-                    stillPointsContainer.appendChild(suggestions);
-                }
-            }
-        }
-        
+
         // Detect Still Points in Animation
         function detectStillPoints() {
             if (!mixer || !horse || animations.length === 0) {
@@ -1450,16 +1180,25 @@
             const stillThreshold = parseFloat(stillThresholdSlider.value);
             const minStillDuration = parseFloat(minStillDurationSlider.value);
             
+            // Add some debug information in the UI
+            console.log("Starting still point detection with threshold:", stillThreshold, 
+                       "and min duration:", minStillDuration);
+            
             // Give the UI time to update before starting intensive operation
             setTimeout(() => {
                 // Perform analysis
                 performStillPointsAnalysis(stillThreshold, minStillDuration)
-                    .then((result) => {
+                    .then((points) => {
+                        stillPoints = points;
+                        
                         // Remove loading message
                         stillPointsContainer.innerHTML = '';
                         
+                        // Log results
+                        console.log(`Found ${points.length} still points:`, points);
+                        
                         // Visualize the results
-                        visualizeStillPoints(result);
+                        visualizeStillPoints(stillPoints);
                         
                         // Restore state
                         mixer.setTime(currentPosition);
@@ -1468,18 +1207,119 @@
             }, 50);
         }
         
-        // Clear still points from the UI
-        function clearStillPoints() {
-            // Clear the still points container
+        // Visualize still points on the timeline and list
+        function visualizeStillPoints(points) {
+            // Clear previous still points
             stillPointsContainer.innerHTML = '';
-            
-            // Clear the still points layer in the timeline
             stillPointsLayer.innerHTML = '';
             
-            // Reset the stillPoints array
-            stillPoints = [];
+            if (points.length === 0) {
+                stillPointsContainer.innerHTML = '<div class="still-point-item">No still points detected. Try adjusting threshold.</div>';
+                return;
+            }
+            
+            // Add still points to list
+            points.forEach((point, index) => {
+                const item = document.createElement('div');
+                item.classList.add('still-point-item');
+                item.innerHTML = `
+                    <strong>Still Point ${index + 1}</strong>: 
+                    ${point.start.toFixed(2)}s - ${point.end.toFixed(2)}s 
+                    (${point.duration.toFixed(2)}s)
+                `;
+                item.title = "Click to jump to this still point";
+                item.addEventListener('click', () => {
+                    currentTime = point.start;
+                    mixer.setTime(point.start);
+                    updateTimeDisplay();
+                });
+                stillPointsContainer.appendChild(item);
+                
+                // Add markers to timeline
+                const startPercent = (point.start / totalDuration) * 100;
+                const endPercent = (point.end / totalDuration) * 100;
+                const width = endPercent - startPercent;
+                
+                // Add segment
+                const segment = document.createElement('div');
+                segment.classList.add('still-segment');
+                segment.style.left = `${startPercent}%`;
+                segment.style.width = `${width}%`;
+                segment.title = `Still: ${point.start.toFixed(2)}s - ${point.end.toFixed(2)}s`;
+                stillPointsLayer.appendChild(segment);
+                
+                // Add start marker
+                const startMarker = document.createElement('div');
+                startMarker.classList.add('still-marker');
+                startMarker.style.left = `${startPercent}%`;
+                startMarker.title = `Still starts: ${point.start.toFixed(2)}s`;
+                stillPointsLayer.appendChild(startMarker);
+                
+                // Add end marker
+                const endMarker = document.createElement('div');
+                endMarker.classList.add('still-marker');
+                endMarker.style.left = `${endPercent}%`;
+                endMarker.title = `Still ends: ${point.end.toFixed(2)}s`;
+                stillPointsLayer.appendChild(endMarker);
+            });
+            
+            // Add quick actions to create clips from still points
+            const actionsDiv = document.createElement('div');
+            actionsDiv.style.marginTop = '15px';
+            actionsDiv.style.marginBottom = '10px';
+            actionsDiv.innerHTML = `
+                <button id="create-clips-from-stills">Create Clips from Still Points</button>
+                <button id="set-markers-from-stills">Set Start/End from Still Points</button>
+            `;
+            stillPointsContainer.appendChild(actionsDiv);
+            
+            // Create clips from still points
+            document.getElementById('create-clips-from-stills').addEventListener('click', () => {
+                if (points.length < 2) {
+                    alert("Need at least 2 still points to create clips");
+                    return;
+                }
+                
+                for (let i = 0; i < points.length - 1; i++) {
+                    const clipName = `Auto Clip ${i+1}`;
+                    const startTime = points[i].end;
+                    const endTime = points[i+1].start;
+                    
+                    if (endTime > startTime) {
+                        // Set inputs
+                        clipNameInput.value = clipName;
+                        startTimeInput.value = startTime.toFixed(2);
+                        endTimeInput.value = endTime.toFixed(2);
+                        updateSegmentPreview();
+                        
+                        // Save clip
+                        document.getElementById('save-segment').click();
+                    }
+                }
+            });
+            
+            // Set markers from selected still points
+            document.getElementById('set-markers-from-stills').addEventListener('click', () => {
+                if (points.length > 0) {
+                    startTimeInput.value = points[0].end.toFixed(2);
+                    if (points.length > 1) {
+                        endTimeInput.value = points[1].start.toFixed(2);
+                    }
+                    updateSegmentPreview();
+                }
+            });
+            
+            // Add summary
+            const summary = document.createElement('div');
+            summary.style.marginTop = '10px';
+            summary.innerHTML = `
+                <strong>Found ${points.length} still point${points.length !== 1 ? 's' : ''}</strong>
+                <p>Total still time: ${points.reduce((sum, p) => sum + p.duration, 0).toFixed(2)}s</p>
+                <p>Click on any still point to jump to that position</p>
+            `;
+            stillPointsContainer.appendChild(summary);
         }
-        
+
         // Event listeners for still point controls
         detectStillPointsBtn.addEventListener('click', detectStillPoints);
         clearStillPointsBtn.addEventListener('click', clearStillPoints);
@@ -1544,19 +1384,6 @@
         startTimeInput.addEventListener('change', updateSegmentPreview);
         endTimeInput.addEventListener('change', updateSegmentPreview);
         loopToggleBtn.textContent = '🔁 Loop ON';
-        
-        // Update the still threshold slider to have a better range
-        stillThresholdSlider.min = "0.00001";
-        stillThresholdSlider.max = "0.005";
-        stillThresholdSlider.step = "0.00001";
-        stillThresholdSlider.value = "0.0001";
-        thresholdValueSpan.textContent = "0.0001";
-        
-        // Update min duration slider for better granularity
-        minStillDurationSlider.min = "0.01";
-        minStillDurationSlider.step = "0.01";
-        minStillDurationSlider.value = "0.1";
-        durationValueSpan.textContent = "0.1s";
     </script>
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 </body>
