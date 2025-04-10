@@ -169,12 +169,25 @@
             max-height: 100px;
             overflow-y: auto;
         }
+        #target-marker {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background-color: rgba(0, 255, 0, 0.5);
+            border: 2px solid rgba(0, 255, 0, 0.8);
+            pointer-events: none;
+            transform: translate(-50%, -50%);
+            z-index: 10;
+            display: none;
+        }
     </style>
 </head>
 <body>
     <div id="scene-container"></div>
     <div id="loading">Loading horse model...</div>
-    <div id="info">Use mouse to rotate the view, scroll to zoom<br>Press M to toggle movement mode<br>WASD/Arrow keys to move (in movement mode)</div>
+    <div id="info">Use mouse to rotate the view, scroll to zoom<br>Press M to toggle movement mode<br>WASD/Arrow keys to move (in movement mode)<br>Click in the scene to make the horse move to that location</div>
+    <div id="target-marker"></div>
     
     <div id="editor-panel">
         <div id="timeline-container">
@@ -360,12 +373,30 @@
         let horseCollider;
         let animations = [];
         let currentAction = null;
+        let walkAnimationAction = null;
         let isPlaying = false;
         let isLooping = true;
         let playbackSpeed = 1.0;
         let currentTime = 0;
         let totalDuration = 0;
         let customClips = [];
+        
+        // Click-to-move variables
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        const targetMarker = document.getElementById('target-marker');
+        let targetPosition = null;
+        let isMovingToTarget = false;
+        let pathPoints = [];
+        let currentPathIndex = 0;
+        
+        // Create a visual marker for the target in 3D space
+        const targetVisual = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.2, 0.2, 0.05, 32),
+            new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.6 })
+        );
+        targetVisual.visible = false;
+        scene.add(targetVisual);
         
         // Movement controls for the horse (when not in animation preview mode)
         const movementKeys = {
@@ -375,29 +406,10 @@
             right: false
         };
         
-        let movementEnabled = false;
+        let movementEnabled = true; // Enable movement by default
         let movementSpeed = 0.05;
         let rotationSpeed = 0.03;
         let horseDirection = new THREE.Vector3(0, 0, 1);
-        
-        // UI Elements
-        const playPauseBtn = document.getElementById('play-pause');
-        const loopToggleBtn = document.getElementById('loop-toggle');
-        const playbackSpeedSlider = document.getElementById('playback-speed');
-        const speedValueSpan = document.getElementById('speed-value');
-        const currentTimeSpan = document.getElementById('current-time');
-        const totalTimeSpan = document.getElementById('total-time');
-        const timelineScrubber = document.getElementById('timeline-scrubber');
-        const timeline = document.getElementById('timeline');
-        const timelineSegments = document.getElementById('timeline-segments');
-        const startTimeInput = document.getElementById('start-time');
-        const endTimeInput = document.getElementById('end-time');
-        const clipNameInput = document.getElementById('clip-name');
-        const segmentsList = document.getElementById('segments-list');
-        const bonesInfo = document.getElementById('bones-info');
-        const animationStats = document.getElementById('animation-stats');
-        const originalAnimations = document.getElementById('original-animations');
-        const customClipsContainer = document.getElementById('custom-clips');
         
         // Load horse model
         const loader = new GLTFLoader();
@@ -445,10 +457,10 @@
             if (animations.length > 0) {
                 // Get total duration
                 totalDuration = animations[0].duration;
-                totalTimeSpan.textContent = totalDuration.toFixed(2);
-                endTimeInput.value = totalDuration.toFixed(2);
-                endTimeInput.max = totalDuration;
-                startTimeInput.max = totalDuration;
+                document.getElementById('total-time').textContent = totalDuration.toFixed(2);
+                document.getElementById('end-time').value = totalDuration.toFixed(2);
+                document.getElementById('end-time').max = totalDuration;
+                document.getElementById('start-time').max = totalDuration;
                 
                 // Create initial animation action
                 currentAction = mixer.clipAction(animations[0]);
@@ -503,6 +515,134 @@
             return false; // No collision
         }
         
+        // Implement click-to-move functionality
+        container.addEventListener('click', (event) => {
+            if (!movementEnabled || !horse) return;
+            
+            // Calculate mouse position in normalized device coordinates (-1 to +1)
+            const rect = container.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / containerWidth) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / containerHeight) * 2 + 1;
+            
+            // Set the raycaster
+            raycaster.setFromCamera(mouse, camera);
+            
+            // Look for intersections with the environment (not the horse)
+            const intersects = raycaster.intersectObjects(scene.children, true);
+            
+            for (let i = 0; i < intersects.length; i++) {
+                const intersect = intersects[i];
+                
+                // Skip if we hit the horse
+                if (horse && intersect.object.parent === horse) continue;
+                
+                // Skip target visual and collision helpers
+                if (intersect.object === targetVisual || 
+                    intersect.object.parent === collisionHelper) continue;
+                
+                // Set target position (make sure it's at the horse's y-level to avoid floating/sinking)
+                targetPosition = new THREE.Vector3(
+                    intersect.point.x,
+                    horse.position.y, // Keep the same y-level as the horse
+                    intersect.point.z
+                );
+                
+                // Position the 2D marker on screen
+                const screenPosition = intersect.point.clone().project(camera);
+                targetMarker.style.left = (screenPosition.x * 0.5 + 0.5) * containerWidth + 'px';
+                targetMarker.style.top = (-screenPosition.y * 0.5 + 0.5) * containerHeight + 'px';
+                targetMarker.style.display = 'block';
+                
+                // Position the 3D visual marker
+                targetVisual.position.copy(targetPosition);
+                targetVisual.position.y += 0.025; // Slightly above ground
+                targetVisual.visible = true;
+                
+                // Start movement
+                isMovingToTarget = true;
+                
+                // Find and play walk animation
+                findAndPlayWalkAnimation();
+                
+                // Exit after the first valid intersection
+                break;
+            }
+        });
+        
+        // Find and play the "walk" animation
+        function findAndPlayWalkAnimation() {
+            if (!mixer) return false;
+            
+            // Save the current action to return to later
+            const previousAction = currentAction;
+            
+            // First check in custom clips
+            const walkClip = customClips.find(clip => 
+                clip.name.toLowerCase().includes('walk'));
+            
+            if (walkClip) {
+                // Stop current animation with slight crossfade
+                if (currentAction) {
+                    currentAction.fadeOut(0.2);
+                }
+                
+                // Play walk animation
+                walkAnimationAction = mixer.clipAction(walkClip);
+                walkAnimationAction.reset();
+                walkAnimationAction.clampWhenFinished = false;
+                walkAnimationAction.loop = THREE.LoopRepeat;
+                walkAnimationAction.fadeIn(0.2);
+                walkAnimationAction.play();
+                
+                // Keep track of current action
+                currentAction = walkAnimationAction;
+                return true;
+            }
+            
+            // If no custom walk clip, check original animations
+            const originalWalkClip = animations.find(clip => 
+                clip.name.toLowerCase().includes('walk'));
+            
+            if (originalWalkClip) {
+                // Stop current animation with slight crossfade
+                if (currentAction) {
+                    currentAction.fadeOut(0.2);
+                }
+                
+                // Play walk animation
+                walkAnimationAction = mixer.clipAction(originalWalkClip);
+                walkAnimationAction.reset();
+                walkAnimationAction.clampWhenFinished = false;
+                walkAnimationAction.loop = THREE.LoopRepeat;
+                walkAnimationAction.fadeIn(0.2);
+                walkAnimationAction.play();
+                
+                // Keep track of current action
+                currentAction = walkAnimationAction;
+                return true;
+            }
+            
+            console.log("No walk animation found. Create a clip named 'walk' to use during movement.");
+            return false;
+        }
+        
+        // Stop the walk animation and return to previous state
+        function stopWalkAnimation() {
+            if (!walkAnimationAction) return;
+            
+            // Fade out the walk animation
+            walkAnimationAction.fadeOut(0.2);
+            walkAnimationAction = null;
+            
+            // If we were previously playing an animation (and not in movement mode),
+            // return to that animation
+            if (!isPlaying) {
+                // Don't auto-play any animation
+                currentAction = null;
+                mixer.stopAllAction();
+            }
+        }
+        
         // Handle movement controls
         document.addEventListener('keydown', (e) => {
             if (e.code === 'KeyM') {
@@ -512,10 +652,24 @@
                 // Update UI to reflect mode
                 if (movementEnabled) {
                     setPlaying(false); // Pause any playing animation
-                    alert('Movement mode enabled. Use WASD or arrow keys to move.');
+                    alert('Movement mode enabled. Use WASD or arrow keys to move, or click to move.');
                 } else {
                     alert('Animation preview mode enabled.');
+                    
+                    // Cancel any ongoing movement
+                    isMovingToTarget = false;
+                    targetVisual.visible = false;
+                    targetMarker.style.display = 'none';
+                    stopWalkAnimation();
                 }
+            }
+            
+            // Cancel movement with Escape key
+            if (e.code === 'Escape' && isMovingToTarget) {
+                isMovingToTarget = false;
+                targetVisual.visible = false;
+                targetMarker.style.display = 'none';
+                stopWalkAnimation();
             }
             
             // Set movement flags based on key presses
@@ -546,13 +700,13 @@
             });
             
             boneInfo += '</ul>';
-            bonesInfo.innerHTML = `<strong>Total Bones:</strong> ${boneCount}<br>${boneInfo}`;
+            document.getElementById('bones-info').innerHTML = `<strong>Total Bones:</strong> ${boneCount}<br>${boneInfo}`;
         }
         
         // Display Animation Information
         function displayAnimationInfo(anims) {
             if (anims.length === 0) {
-                animationStats.innerHTML = "No animations found";
+                document.getElementById('animation-stats').innerHTML = "No animations found";
                 return;
             }
             
@@ -567,10 +721,10 @@
                 const button = document.createElement('button');
                 button.textContent = anim.name || `Animation ${index}`;
                 button.addEventListener('click', () => playOriginalAnimation(index));
-                originalAnimations.appendChild(button);
+                document.getElementById('original-animations').appendChild(button);
             });
             
-            animationStats.innerHTML = statsHtml;
+            document.getElementById('animation-stats').innerHTML = statsHtml;
         }
         
         // Play original animation
@@ -591,16 +745,16 @@
             currentAction.play();
             
             // Update UI
-            startTimeInput.value = 0;
-            endTimeInput.value = clip.duration.toFixed(2);
+            document.getElementById('start-time').value = 0;
+            document.getElementById('end-time').value = clip.duration.toFixed(2);
             totalDuration = clip.duration;
-            totalTimeSpan.textContent = totalDuration.toFixed(2);
+            document.getElementById('total-time').textContent = totalDuration.toFixed(2);
             
             // Highlight active button
-            originalAnimations.querySelectorAll('button').forEach((btn, i) => {
+            document.getElementById('original-animations').querySelectorAll('button').forEach((btn, i) => {
                 btn.classList.toggle('active', i === index);
             });
-            originalAnimations.querySelectorAll('button').forEach((btn, i) => {
+            document.getElementById('original-animations').querySelectorAll('button').forEach((btn, i) => {
                 if (i !== index) {
                     btn.classList.remove('active');
                 }
@@ -611,8 +765,8 @@
         }
         
         // Timeline interaction
-        timeline.addEventListener('mousedown', (e) => {
-            const rect = timeline.getBoundingClientRect();
+        document.getElementById('timeline').addEventListener('mousedown', (e) => {
+            const rect = document.getElementById('timeline').getBoundingClientRect();
             const x = e.clientX - rect.left;
             const percentage = x / rect.width;
             scrubToPercentage(percentage);
@@ -623,7 +777,7 @@
         });
         
         function onMouseMove(e) {
-            const rect = timeline.getBoundingClientRect();
+            const rect = document.getElementById('timeline').getBoundingClientRect();
             const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
             const percentage = x / rect.width;
             scrubToPercentage(percentage);
@@ -648,22 +802,22 @@
         }
         
         // Playback controls
-        playPauseBtn.addEventListener('click', () => {
+        document.getElementById('play-pause').addEventListener('click', () => {
             setPlaying(!isPlaying);
         });
         
-        loopToggleBtn.addEventListener('click', () => {
+        document.getElementById('loop-toggle').addEventListener('click', () => {
             isLooping = !isLooping;
             if (currentAction) {
                 currentAction.loop = isLooping ? THREE.LoopRepeat : THREE.LoopOnce;
                 currentAction.clampWhenFinished = !isLooping;
             }
-            loopToggleBtn.textContent = isLooping ? '🔁 Loop ON' : '↩️ Loop OFF';
+            document.getElementById('loop-toggle').textContent = isLooping ? '🔁 Loop ON' : '↩️ Loop OFF';
         });
         
-        playbackSpeedSlider.addEventListener('input', () => {
-            playbackSpeed = parseFloat(playbackSpeedSlider.value);
-            speedValueSpan.textContent = playbackSpeed.toFixed(1);
+        document.getElementById('playback-speed').addEventListener('input', () => {
+            playbackSpeed = parseFloat(document.getElementById('playback-speed').value);
+            document.getElementById('speed-value').textContent = playbackSpeed.toFixed(1);
             if (mixer) {
                 mixer.timeScale = isPlaying ? playbackSpeed : 0;
             }
@@ -674,28 +828,28 @@
             if (mixer) {
                 mixer.timeScale = isPlaying ? playbackSpeed : 0;
             }
-            playPauseBtn.textContent = isPlaying ? '⏸️ Pause' : '▶️ Play';
-            playPauseBtn.classList.toggle('active', isPlaying);
+            document.getElementById('play-pause').textContent = isPlaying ? '⏸️ Pause' : '▶️ Play';
+            document.getElementById('play-pause').classList.toggle('active', isPlaying);
         }
         
         // Set start/end points
         document.getElementById('set-start').addEventListener('click', () => {
-            startTimeInput.value = currentTime.toFixed(2);
+            document.getElementById('start-time').value = currentTime.toFixed(2);
             updateSegmentPreview();
         });
         
         document.getElementById('set-end').addEventListener('click', () => {
-            endTimeInput.value = currentTime.toFixed(2);
+            document.getElementById('end-time').value = currentTime.toFixed(2);
             updateSegmentPreview();
         });
         
         // Update time display
         function updateTimeDisplay() {
-            currentTimeSpan.textContent = currentTime.toFixed(2);
+            document.getElementById('current-time').textContent = currentTime.toFixed(2);
             
             // Update scrubber position
             const percentage = currentTime / totalDuration;
-            timelineScrubber.style.left = `${percentage * 100}%`;
+            document.getElementById('timeline-scrubber').style.left = `${percentage * 100}%`;
         }
         
         // Create a segment preview on the timeline
@@ -704,8 +858,8 @@
             const existingPreview = document.querySelector('.segment-preview');
             if (existingPreview) existingPreview.remove();
             
-            const startTime = parseFloat(startTimeInput.value);
-            const endTime = parseFloat(endTimeInput.value);
+            const startTime = parseFloat(document.getElementById('start-time').value);
+            const endTime = parseFloat(document.getElementById('end-time').value);
             
             if (startTime >= endTime || endTime > totalDuration) return;
             
@@ -717,9 +871,9 @@
             segment.classList.add('timeline-segment', 'segment-preview');
             segment.style.left = `${startPercent}%`;
             segment.style.width = `${width}%`;
-            segment.title = `Preview: ${clipNameInput.value} (${startTime.toFixed(2)}s - ${endTime.toFixed(2)}s)`;
+            segment.title = `Preview: ${document.getElementById('clip-name').value} (${startTime.toFixed(2)}s - ${endTime.toFixed(2)}s)`;
             
-            timelineSegments.appendChild(segment);
+            document.getElementById('timeline-segments').appendChild(segment);
         }
         
         // Initial segment preview
@@ -727,8 +881,8 @@
         
         // Preview segment
         document.getElementById('preview-segment').addEventListener('click', () => {
-            const startTime = parseFloat(startTimeInput.value);
-            const endTime = parseFloat(endTimeInput.value);
+            const startTime = parseFloat(document.getElementById('start-time').value);
+            const endTime = parseFloat(document.getElementById('end-time').value);
             
             if (startTime >= endTime || !currentAction) return;
             
@@ -752,9 +906,9 @@
         
         // Save segment
         document.getElementById('save-segment').addEventListener('click', () => {
-            const name = clipNameInput.value || 'Clip';
-            const startTime = parseFloat(startTimeInput.value);
-            const endTime = parseFloat(endTimeInput.value);
+            const name = document.getElementById('clip-name').value || 'Clip';
+            const startTime = parseFloat(document.getElementById('start-time').value);
+            const endTime = parseFloat(document.getElementById('end-time').value);
             
             if (startTime >= endTime || !animations[0]) return;
             
@@ -772,7 +926,7 @@
             addSegmentToTimeline(newClip, startTime, endTime);
             
             // Generate a new name for next clip
-            clipNameInput.value = `Clip ${customClips.length + 1}`;
+            document.getElementById('clip-name').value = `Clip ${customClips.length + 1}`;
         });
         
         // Create a sub-clip
@@ -964,7 +1118,7 @@
                 <span>${clip.name} (${clip.duration.toFixed(2)}s)</span>
                 <button class="play-clip" data-index="${index}">Play</button>
             `;
-            segmentsList.appendChild(item);
+            document.getElementById('segments-list').appendChild(item);
             
             // Add play button
             item.querySelector('.play-clip').addEventListener('click', () => {
@@ -976,7 +1130,7 @@
             button.textContent = clip.name;
             button.dataset.index = index;
             button.addEventListener('click', () => playCustomClip(index));
-            customClipsContainer.appendChild(button);
+            document.getElementById('custom-clips').appendChild(button);
         }
         
         // Add segment visualization to timeline
@@ -994,7 +1148,7 @@
             segment.style.borderLeftColor = getRandomColor(0.8);
             segment.style.borderRightColor = getRandomColor(0.8);
             
-            timelineSegments.appendChild(segment);
+            document.getElementById('timeline-segments').appendChild(segment);
         }
         
         // Get random color
@@ -1027,13 +1181,13 @@
             
             // Update UI
             totalDuration = clip.duration;
-            totalTimeSpan.textContent = totalDuration.toFixed(2);
+            document.getElementById('total-time').textContent = totalDuration.toFixed(2);
             
             // Highlight active button
-            customClipsContainer.querySelectorAll('button').forEach((btn, i) => {
+            document.getElementById('custom-clips').querySelectorAll('button').forEach((btn, i) => {
                 btn.classList.toggle('active', i === index);
             });
-            originalAnimations.querySelectorAll('button').forEach(btn => {
+            document.getElementById('original-animations').querySelectorAll('button').forEach(btn => {
                 btn.classList.remove('active');
             });
             
@@ -1067,58 +1221,148 @@
             console.log("Clip Data:", json);
         });
         
-        // Handle horse movement
+        // Update horse movement function to handle click-to-move
         function updateHorsePosition() {
-            if (!movementEnabled || !horse) return;
+            if (!horse) return;
             
             let moved = false;
-            const moveDistance = movementSpeed;
             
-            // Calculate movement based on keys pressed
-            if (movementKeys.forward) {
-                // Calculate next position
-                const forwardMove = horseDirection.clone().multiplyScalar(moveDistance);
-                const nextPosition = horse.position.clone().add(forwardMove);
+            if (movementEnabled) {
+                // Handle keyboard movement
+                const moveDistance = movementSpeed;
                 
-                // Check for collisions before moving
-                if (!detectCollisions(nextPosition)) {
-                    horse.position.add(forwardMove);
-                    moved = true;
+                // Calculate movement based on keys pressed
+                if (movementKeys.forward) {
+                    // Calculate next position
+                    const forwardMove = horseDirection.clone().multiplyScalar(moveDistance);
+                    const nextPosition = horse.position.clone().add(forwardMove);
+                    
+                    // Check for collisions before moving
+                    if (!detectCollisions(nextPosition)) {
+                        horse.position.add(forwardMove);
+                        moved = true;
+                        
+                        // Cancel any click-to-move if using keyboard
+                        if (isMovingToTarget) {
+                            isMovingToTarget = false;
+                            targetVisual.visible = false;
+                            targetMarker.style.display = 'none';
+                        }
+                    }
                 }
-            }
-            
-            if (movementKeys.backward) {
-                // Calculate next position
-                const backwardMove = horseDirection.clone().multiplyScalar(-moveDistance);
-                const nextPosition = horse.position.clone().add(backwardMove);
                 
-                // Check for collisions before moving
-                if (!detectCollisions(nextPosition)) {
-                    horse.position.add(backwardMove);
-                    moved = true;
+                if (movementKeys.backward) {
+                    // Calculate next position
+                    const backwardMove = horseDirection.clone().multiplyScalar(-moveDistance);
+                    const nextPosition = horse.position.clone().add(backwardMove);
+                    
+                    // Check for collisions before moving
+                    if (!detectCollisions(nextPosition)) {
+                        horse.position.add(backwardMove);
+                        moved = true;
+                        
+                        // Cancel any click-to-move if using keyboard
+                        if (isMovingToTarget) {
+                            isMovingToTarget = false;
+                            targetVisual.visible = false;
+                            targetMarker.style.display = 'none';
+                        }
+                    }
                 }
-            }
-            
-            // Rotation
-            if (movementKeys.left) {
-                // Rotate horse left
-                horse.rotation.y += rotationSpeed;
-                // Update direction vector
-                horseDirection.set(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), horse.rotation.y);
-                moved = true;
-            }
-            
-            if (movementKeys.right) {
-                // Rotate horse right
-                horse.rotation.y -= rotationSpeed;
-                // Update direction vector
-                horseDirection.set(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), horse.rotation.y);
-                moved = true;
-            }
-            
-            // Update horse collider
-            if (moved && horseCollider) {
-                horseCollider.setFromObject(horse);
+                
+                // Rotation
+                if (movementKeys.left) {
+                    // Rotate horse left
+                    horse.rotation.y += rotationSpeed;
+                    // Update direction vector
+                    horseDirection.set(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), horse.rotation.y);
+                    moved = true;
+                    
+                    // Cancel any click-to-move if using keyboard
+                    if (isMovingToTarget) {
+                        isMovingToTarget = false;
+                        targetVisual.visible = false;
+                        targetMarker.style.display = 'none';
+                    }
+                }
+                
+                if (movementKeys.right) {
+                    // Rotate horse right
+                    horse.rotation.y -= rotationSpeed;
+                    // Update direction vector
+                    horseDirection.set(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), horse.rotation.y);
+                    moved = true;
+                    
+                    // Cancel any click-to-move if using keyboard
+                    if (isMovingToTarget) {
+                        isMovingToTarget = false;
+                        targetVisual.visible = false;
+                        targetMarker.style.display = 'none';
+                    }
+                }
+                
+                // Handle click-to-move
+                if (isMovingToTarget && targetPosition) {
+                    // Get direction to target
+                    const toTarget = new THREE.Vector3().subVectors(targetPosition, horse.position);
+                    const distance = toTarget.length();
+                    
+                    if (distance > 0.2) { // Stop when close enough
+                        // Normalize direction
+                        const direction = toTarget.clone().normalize();
+                        
+                        // Calculate next position
+                        const moveStep = direction.clone().multiplyScalar(moveDistance);
+                        const nextPosition = horse.position.clone().add(moveStep);
+                        
+                        // Check for collisions
+                        if (!detectCollisions(nextPosition)) {
+                            // Move horse towards target
+                            horse.position.add(moveStep);
+                            moved = true;
+                            
+                            // Rotate horse to face movement direction
+                            const targetAngle = Math.atan2(direction.x, direction.z);
+                            
+                            // Smoothly rotate to target angle
+                            const angleDiff = targetAngle - horse.rotation.y;
+                            // Normalize angle difference to -PI to PI range
+                            const normalizedDiff = ((angleDiff + Math.PI) % (Math.PI * 2)) - Math.PI;
+                            
+                            // Apply smooth rotation with damping
+                            horse.rotation.y += normalizedDiff * 0.1;
+                            
+                            // Update direction vector
+                            horseDirection.set(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), horse.rotation.y);
+                        } else {
+                            // If collision detected, try to find a way around later
+                            // For now, we'll just stop
+                            isMovingToTarget = false;
+                            targetVisual.visible = false;
+                            targetMarker.style.display = 'none';
+                            stopWalkAnimation();
+                        }
+                    } else {
+                        // Reached target
+                        isMovingToTarget = false;
+                        targetVisual.visible = false;
+                        targetMarker.style.display = 'none';
+                        stopWalkAnimation();
+                    }
+                }
+                
+                // Update horse collider if moved
+                if (moved && horseCollider) {
+                    horseCollider.setFromObject(horse);
+                    
+                    // Play walk animation if moving and not already playing
+                    if (!walkAnimationAction && moved) {
+                        findAndPlayWalkAnimation();
+                    }
+                } else if (!moved && walkAnimationAction && !isMovingToTarget) {
+                    // Stop walk animation when not moving
+                    stopWalkAnimation();
+                }
             }
         }
         
@@ -1134,27 +1378,30 @@
             // Get delta time
             const delta = clock.getDelta();
             
-            // Update animations if playing
-            if (mixer && isPlaying) {
+            // Update animations if playing or moving
+            if (mixer && (isPlaying || isMovingToTarget || 
+                (movementEnabled && (movementKeys.forward || movementKeys.backward)))) {
                 mixer.update(delta);
-                currentTime += delta * playbackSpeed;
                 
-                // Loop if needed
-                if (currentTime > totalDuration) {
-                    if (isLooping) {
-                        currentTime = currentTime % totalDuration;
-                        // No need to manually reset the animation as THREE.js handles looping
-                    } else {
-                        currentTime = totalDuration;
-                        setPlaying(false);
+                if (isPlaying) {
+                    currentTime += delta * playbackSpeed;
+                    
+                    // Loop if needed
+                    if (currentTime > totalDuration) {
+                        if (isLooping) {
+                            currentTime = currentTime % totalDuration;
+                        } else {
+                            currentTime = totalDuration;
+                            setPlaying(false);
+                        }
                     }
+                    
+                    // Update time display
+                    updateTimeDisplay();
+                    
+                    // Dispatch custom event for time update
+                    document.dispatchEvent(new CustomEvent('animationTimeUpdate'));
                 }
-                
-                // Update time display
-                updateTimeDisplay();
-                
-                // Dispatch custom event for time update
-                document.dispatchEvent(new CustomEvent('animationTimeUpdate'));
             }
             
             // Handle horse movement if in movement mode
@@ -1180,10 +1427,9 @@
             renderer.setSize(newWidth, newHeight);
         });
         
-        // Initialize UI
-        startTimeInput.addEventListener('change', updateSegmentPreview);
-        endTimeInput.addEventListener('change', updateSegmentPreview);
-        loopToggleBtn.textContent = '🔁 Loop ON';
+        document.getElementById('start-time').addEventListener('change', updateSegmentPreview);
+        document.getElementById('end-time').addEventListener('change', updateSegmentPreview);
+        document.getElementById('loop-toggle').textContent = '🔁 Loop ON';
     </script>
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 </body>
